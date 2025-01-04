@@ -1,0 +1,26 @@
+name: Track GitHub Traffic
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Runs weekly (every Sunday at midnight UTC)
+  workflow_dispatch:  # Allows manual triggering as well
+jobs:
+  fetch-traffic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests gspread oauth2client
+
+      - name: Fetch Traffic Data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python fetch_traffic.py
