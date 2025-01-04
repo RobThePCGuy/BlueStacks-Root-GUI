@@ -1,10 +1,10 @@
 # BlueStacks Root GUI
 
 >[!IMPORTANT]
-> This is an **unofficial modification**. It is not supported by the BlueStacks team, nor should you blame me or them if your dishwasher blows up. Work **IN** Progress only use if you are crazy!
+> This is an **unofficial modification**. It is not supported by the BlueStacks team, nor should you blame me or them if your dishwasher blows up. Work **IN** Progress: only use if you are crazy!
 > As always, I am happy to accept help.
 
-This is an AIO application designed to simplify the configuration part of my original tutorial on how to [root BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/) with Kitsune Mask. If you want to do things manually, then the original repo is where you go. This tool will allow you to toggle root access and read/write (R/W) modes for BlueStacks instances. It provides an intuitive interface for managing these settings without manually editing configuration files. It will not automatically download BlueStacks or Magisk, nor install either.. yet.
+This is an AIO application designed to simplify the configuration part of my original tutorial on how to [root BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/) with Kitsune Mask. For manual work, use the original repo. This tool will allow you to toggle root access and read/write (R/W) modes for BlueStacks instances. It provides an intuitive interface for managing these settings without manually editing configuration files. It will not automatically download BlueStacks or Magisk, nor will it install either... yet.
 
 ## Features
 
@@ -18,7 +18,7 @@ This is an AIO application designed to simplify the configuration part of my ori
 1. **Download the Executable**:
    - Download the latest `.exe` file from the [Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases) section.
 
-2. **Run the App**:
+2. **Run the app**:
    - Double-click the `.exe` file to open the GUI.
    - No installation is required.
 
