@@ -102,10 +102,10 @@ class BluestacksRootToggle(QWidget):
                 for line in f:
                     if line.startswith(INSTANCE_PREFIX) and ENABLE_ROOT_KEY in line:
                         instance_name = line.split(".")[2]
+                        instance_path = os.path.join(self.bluestacks_path, instance_name)
                         new_instance_data[instance_name] = {
                             "root_enabled": config_handler.is_root_enabled(self.config_path, instance_name),
-                            "rw_mode": "Normal" if not instance_handler.is_instance_readonly(
-                                os.path.join(self.bluestacks_path, instance_name)) else "Readonly"
+                            "rw_mode": "Normal" if not instance_handler.is_instance_readonly(instance_path) else "Readonly"
                         }
             self.instance_data = new_instance_data
         except Exception as e:
@@ -200,7 +200,7 @@ class BluestacksRootToggle(QWidget):
                     self.status_label.setText(f"Error toggling root for {instance_name}: {e}")
 
     def toggle_rw(self):
-        """Toggles R/W mode for selected instances."""
+        """Toggles R/W mode for selected instances, modifying both .bstk.in and .bstk files."""
         if not self.bluestacks_path:
             self.status_label.setText("Error: BlueStacks path not found.")
             return
@@ -214,6 +214,7 @@ class BluestacksRootToggle(QWidget):
                     current_state = self.instance_data[instance_name]["rw_mode"]
                     new_state = "Normal" if current_state == "Readonly" else "Readonly"
 
+                    # Use the modify_instance_files from instance_handler
                     instance_handler.modify_instance_files(instance_path, [FASTBOOT_VDI, ROOT_VHD], new_state)
 
                     # Update the instance data and UI

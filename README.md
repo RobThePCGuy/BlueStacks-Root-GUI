@@ -1,6 +1,10 @@
 # BlueStacks Root GUI
 
-This is an AIO application designed to simplify the configuration part of my original tutorial on how to [root BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/) with Kitsune Mask. If you want to do things manually, then the original repo is where you go. This tool will allow you to toggle root access and read/write (R/W) modes for BlueStacks instances. It provides an intuitive interface for managing these settings without manually editing configuration files.
+>[!IMPORTANT]
+> This is an **unofficial modification**. It is not supported by the BlueStacks team, nor should you blame me or them if your dishwasher blows up. Work **IN** Progress only use if you are crazy!
+> As always, I am happy to accept help.
+
+This is an AIO application designed to simplify the configuration part of my original tutorial on how to [root BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/) with Kitsune Mask. If you want to do things manually, then the original repo is where you go. This tool will allow you to toggle root access and read/write (R/W) modes for BlueStacks instances. It provides an intuitive interface for managing these settings without manually editing configuration files. It will not automatically download BlueStacks or Magisk, nor install either.. yet.
 
 ## Features
 
@@ -33,7 +37,8 @@ This is an AIO application designed to simplify the configuration part of my ori
    - **Toggle Root**: Toggles root access (`On`/`Off`) for the selected instance.
    - **Toggle R/W**: Toggles read/write mode (`On`/`Off`) for the selected instance.
 5. Observe the status updates (`Root: On/Off` and `R/W: On/Off`) next to each instance.
-6. Close the app when finished.
+6. Once you have installed Kitsune Mask and completed the direct install to the system partition part of my other tutorial, you can untoggle Root and leave the R/W checked. 
+7. Close the app when finished.
 
 ---
 
@@ -67,8 +72,8 @@ This is an AIO application designed to simplify the configuration part of my ori
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo-name.git
-   cd your-repo-name
+   git clone https://github.com/RobThePCGuy/BlueStacks-Root-GUI.git
+   cd BlueStacks-Root-GUI
    ```
 
 2. Install dependencies:
@@ -83,7 +88,7 @@ This is an AIO application designed to simplify the configuration part of my ori
 
 4. Build the `.exe` file:
    ```bash
-   pyinstaller --onefile --windowed main.py
+   pyinstaller --onefile --windowed --icon=main.ico main.py
    ```
 
 ---
