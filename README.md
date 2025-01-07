@@ -1,5 +1,7 @@
 # BlueStacks Root GUI
 
+![gui](https://github.com/user-attachments/assets/811b1ef8-8b16-4b89-a7f0-f60f423af4b0)
+
 >[!IMPORTANT]
 > This is an **unofficial modification**. It is not supported by the BlueStacks team, nor should you blame me or them if your dishwasher blows up. Work **IN** Progress: only use if you are crazy!
 > As always, I am happy to accept help.
