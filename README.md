@@ -1,6 +1,6 @@
 # BlueStacks Root GUI
 
-![gui](https://github.com/user-attachments/assets/811b1ef8-8b16-4b89-a7f0-f60f423af4b0)
+![final](https://github.com/user-attachments/assets/bcab8008-c97e-4c91-adc8-30cfd96c96e5)
 
 >[!IMPORTANT]
 > This is an **unofficial modification**. It is not supported by the BlueStacks team, nor should you blame me or them if your dishwasher blows up. Work **IN** Progress: only use if you are crazy!
