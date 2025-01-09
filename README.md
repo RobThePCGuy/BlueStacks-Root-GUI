@@ -1,100 +1,77 @@
 # BlueStacks Root GUI
 
-![final](https://github.com/user-attachments/assets/10f965eb-e1cc-4d61-9b6f-0cbb484a4ef0)
+![GUI Screenshot](https://github.com/user-attachments/assets/10f965eb-e1cc-4d61-9b6f-0cbb484a4ef0)
 
->[!IMPORTANT]
-> This is an **unofficial modification**. It is not supported by the BlueStacks team, nor should you blame me or them if your dishwasher blows up. Work **IN** Progress: only use if you are crazy!
-> As always, I am happy to accept help.
+> [!IMPORTANT]
+> This is an unofficial modification for the BlueStacks Android emulator. If you encounter any issues, please open a GitHub issue.
+>
+> *As of January 9, 2025, this tool works as expected. However, it's important to note that this method is not compatible with Nougat instances. This README will be updated if that changes.*
 
-This is an AIO application designed to simplify the configuration part of my original tutorial on how to [root BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/) with Kitsune Mask. For manual work, use the original repo. This tool will allow you to toggle root access and read/write (R/W) modes for BlueStacks instances. It provides an intuitive interface for managing these settings without manually editing configuration files. It will not automatically download BlueStacks or Magisk, nor will it install either... yet.
+This GUI streamlines the configuration process outlined in my guide to [rooting BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/). While it simplifies certain steps, **both repositories** are still required for complete rooting because the linked repository contains the core rooting process. This tool lets you toggle root access and enable read/write permissions for the filesystem within the `bluestacks.conf` file of selected BlueStacks instances, providing a user-friendly alternative to manual editing.
 
 ## Features
 
-- Reads Windows Registry to auto-detect the right directories and lists them individually for you to pick.
-- Toggles root access (`Root: On/Off`) for individual instances.
-- Toggles file system read/write access (`R/W: On/Off`) for individual instances.
-- Updates the current status of root and R/W modes dynamically in the GUI.
+- Automatically detects BlueStacks instances via the Windows Registry and displays them for selection.
+- Toggles root access (`Root: On/Off`) in `bluestacks.conf` for selected instances.
+- Toggles read/write (`R/W: On/Off`) filesystem permissions for selected instances.
+- Dynamically updates the displayed root and R/W status in the GUI.
+
+### Roadmap
+- Download the latest version of BlueStacks
+- Download the latest version of Magisk Delta
+- Integrate ADB-based rooting directly within the GUI.
 
 ## Installation
 
-1. **Download the Executable**:
-   - Download the latest `.exe` file from the [Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases) section.
+1. **Download:** Get the latest `.exe` release from the [Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases) page.
+2. **Run:** Double-click the downloaded `.exe` file. The application is portable and requires no formal installation.
+3. **Prerequisites:**
+   - BlueStacks must already be installed.
+   - Refer to my main rooting guide ([Root BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)) to complete the rooting process.
 
-2. **Run the app**:
-   - Double-click the `.exe` file to open the GUI.
-   - No installation is required.
+## Usage
 
-3. **Requirements**:
-   - Ensure BlueStacks is installed on your system.
-   - The app detects BlueStacks configuration and instance files automatically.
-
----
-
-## Usage Instructions
-
-1. Open the app by running the `.exe` file.
-2. The app will automatically detect available BlueStacks instances and display them in the GUI.
-3. Select an instance by checking its corresponding checkbox.
-4. Use the following buttons:
-   - **Toggle Root**: Toggles root access (`On`/`Off`) for the selected instance.
-   - **Toggle R/W**: Toggles read/write mode (`On`/`Off`) for the selected instance.
-5. Observe the status updates (`Root: On/Off` and `R/W: On/Off`) next to each instance.
-6. Once you have installed Kitsune Mask and completed the direct install to the system partition part of my other tutorial, you can untoggle Root and leave the R/W checked. 
-7. Close the app when finished.
-
----
-
-## Requirements
-
-- **BlueStacks**: The app is designed to work with BlueStacks Android Emulator.
-- **Windows**: This app runs on Windows systems.
-
----
+1. Run the `.exe` file.
+2. The GUI will automatically detect and list available BlueStacks instances.
+3. Select the instance(s) you want to modify.
+4. Use the buttons:
+   - **Toggle Root:** Enables or disables root access.
+   - **Toggle R/W:** Enables or disables read/write permissions.
+5. The GUI displays the current `Root` and `R/W` status for each instance.
+6. After installing Kitsune Mask and completing the system partition installation steps described in the linked tutorial, you can **disable `Root` while leaving `R/W` enabled** if desired.
+7. Close the application when finished.
 
 ## Troubleshooting
 
-### Common Issues
+**Common Issues:**
 
-1. **Error: Configuration file not found**:
-   - Ensure BlueStacks is installed and running.
-   - Verify that the `bluestacks.conf` file exists in the expected directory.
-
-2. **Status not updating**:
-   - Restart the app to refresh instance detection.
-   - Ensure the `.bstk` files are not locked by another process.
-
-3. **Permissions error**:
-   - Run the app as an administrator to ensure it can modify the necessary files.
-
----
+- **"Configuration file not found":** Ensure that BlueStacks is installed. Confirm that the `bluestacks.conf` file exists in the correct directory (the GUI should handle this automatically). If the problem persists, open a GitHub issue.
+- **Status not updating:** Restart the application. Ensure BlueStacks is not running (it could be locking the `.bstk` files).
+- **Permissions error:** Run the application as an administrator.
 
 ## Development
 
-### For Developers
+**For Developers:**
 
-1. Clone the repository:
+1. **Clone:**
    ```bash
    git clone https://github.com/RobThePCGuy/BlueStacks-Root-GUI.git
    cd BlueStacks-Root-GUI
    ```
-
-2. Install dependencies:
+2. **Dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
-
-3. Run the app:
+3. **Run:**
    ```bash
    python main.py
    ```
-
-4. Build the `.exe` file:
+4. **Build (exe):**
    ```bash
    pyinstaller --onefile --windowed --icon=main.ico main.py
    ```
+   The output file will be located inside the `dist/` folder.
 
----
+## Contributing
 
-## Contributions
-
-Contributions are welcome! Feel free to open an issue or submit a pull request.
+Contributions are welcome! Please open an issue or submit a pull request.
