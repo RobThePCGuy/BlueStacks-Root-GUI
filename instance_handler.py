@@ -1,78 +1,64 @@
 import os
-import glob  # Import the glob module
+import glob
 
 def modify_instance_files(instance_path, file_names, new_type):
-    """Modifies the type of specified files within an instance's .bstk files.
-
-    Directly replaces "Readonly" and "Normal" strings to toggle R/W status.
-
-    Args:
-        instance_path: The path to the instance directory (e.g., ...\Engine\Rvc64).
-        file_names: A list of file names to modify (e.g., ["fastboot.vdi", "Root.vhd"]).
-        new_type: The new type to set (e.g., "Normal" or "Readonly").
-    """
+    """Modifies file types in .bstk files to toggle R/W status, and logs changes in detail."""
     bstk_files = ["Android.bstk.in"]
+    instance_bstk = glob.glob(os.path.join(instance_path, "*.bstk"))
 
-    # Find the instance-specific .bstk file
-    instance_bstk_files = glob.glob(os.path.join(instance_path, "*.bstk"))
-    if instance_bstk_files:
-        bstk_files.append(os.path.basename(instance_bstk_files[0]))
-    else:
-        print(f"Error: No instance-specific .bstk file found in {instance_path}")
+    if not instance_bstk:
+        print(f"Error: No .bstk file found in {instance_path}")
         return
 
-    for bstk_file_name in bstk_files:
-        bstk_file_path = os.path.join(instance_path, bstk_file_name)
+    bstk_files.append(os.path.basename(instance_bstk[0]))
+
+    for bstk_file in bstk_files:
+        bstk_path = os.path.join(instance_path, bstk_file)
+        changed_entries = []  # Store (filename, old_value, new_value)
 
         try:
-            with open(bstk_file_path, "r") as file:
-                content = file.readlines()
+            with open(bstk_path, "r") as f:
+                content = f.readlines()
 
-            modified = False
-            with open(bstk_file_path, "w") as file:
+            with open(bstk_path, "w") as f:
                 for line in content:
-                    # Check if any of the file_names are in the current line
-                    if any(file_name in line for file_name in file_names):
-                        # Replace "Readonly" or "Normal" with the new_type
+                    # Check if any target file_name is mentioned in this line
+                    matched_file_name = next((fn for fn in file_names if fn in line), None)
+                    if matched_file_name:
                         if "Readonly" in line:
+                            old_value = "Readonly"
                             line = line.replace("Readonly", new_type)
-                            modified = True
+                            changed_entries.append((matched_file_name, old_value, new_type))
                         elif "Normal" in line:
+                            old_value = "Normal"
                             line = line.replace("Normal", new_type)
-                            modified = True
-                    file.write(line)
+                            changed_entries.append((matched_file_name, old_value, new_type))
+                    f.write(line)
 
-            if modified:
-                print(f"Modified file: {bstk_file_path}")
+            if changed_entries:
+                for (file_name, old_val, new_val) in changed_entries:
+                    print(f"Successfully updated '{file_name}' from '{old_val}' to '{new_val}' in {bstk_path}")
             else:
-                print(f"No changes made to file: {bstk_file_path}")
+                print(f"No changes made in {bstk_path}")
 
         except FileNotFoundError:
-            print(f"Error: Instance file not found at {bstk_file_path}")
+            print(f"Error: File not found at {bstk_path}")
         except Exception as e:
-            print(f"Error modifying instance file: {e}")
-            
+            print(f"Error modifying file: {e}")
+
 def is_instance_readonly(instance_path):
-    """Checks if the instance files are set to Readonly.
-
-    Args:
-        instance_path: The path to the instance directory.
-
-    Returns:
-        True if any line in the instance files contains "Readonly", False otherwise.
-    """
-    for bstk_file_name in ["Android.bstk.in", f"{os.path.basename(instance_path)}.bstk"]:
-        bstk_file_path = os.path.join(instance_path, bstk_file_name)
-
+    """Checks if instance files are set to 'Readonly'."""
+    for bstk_file in ["Android.bstk.in", f"{os.path.basename(instance_path)}.bstk"]:
+        bstk_path = os.path.join(instance_path, bstk_file)
         try:
-            with open(bstk_file_path, "r") as file:
-                for line in file:
+            with open(bstk_path, "r") as f:
+                for line in f:
                     if "Readonly" in line:
-                        return True  # Found "Readonly" in a line
-            return False  # Did not find "Readonly" in any line
+                        return True
+            return False
         except FileNotFoundError:
-            print(f"Error: Instance file not found at {bstk_file_path}")
+            print(f"Error: File not found at {bstk_path}")
             return False
         except Exception as e:
-            print(f"Error reading instance file: {e}")
+            print(f"Error reading file: {e}")
             return False
