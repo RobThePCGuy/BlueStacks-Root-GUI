@@ -1,22 +1,22 @@
 import sys
 import os
-import time
 import logging
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
-    QGroupBox, QCheckBox, QLineEdit, QComboBox  # Import QComboBox for language selection
+    QGroupBox, QCheckBox, QLineEdit, QComboBox, QMessageBox, QProgressBar
 )
-from PyQt5.QtCore import Qt, QTimer, QLocale
-from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QIcon
 
 import registry_handler
 import config_handler
 import instance_handler
 
-# Initialize logging (as before)
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Constants
 BLUESTACKS_CONF_FILENAME = "bluestacks.conf"
 INSTANCE_PREFIX = "bst.instance."
 ENABLE_ROOT_KEY = ".enable_root_access"
@@ -26,23 +26,20 @@ ROOT_VHD = "Root.vhd"
 REFRESH_INTERVAL_MS = 5000  # 5 seconds
 
 
-class BluestacksRootToggle(QWidget):
+class TranslationManager:
+    """Manages translations for the application."""
     def __init__(self):
-        super().__init__()
-
-        # --- Translation Setup (Dictionary-based) ---
-        self.languages = {"en": "English", "ja": "日本語"}  # Language codes and names
-        self.current_language = "en"  # Default language
-
+        self.languages = {"en": "English", "ja": "日本語"}
+        self.current_language = "en"
         self.translations = {
-            "en": {  # English translations (source strings are keys)
+            "en": {
                 "BlueStacks Root GUI": "BlueStacks Root GUI",
                 "BlueStacks Path: Loading...": "BlueStacks Path: Loading...",
                 "BlueStacks Path: Not Found": "BlueStacks Path: Not Found",
-                "BlueStacks Path: {}": "BlueStacks Path: {}", # Placeholders still work
+                "BlueStacks Path: {}": "BlueStacks Path: {}",
                 "Instances": "Instances",
                 "Toggle Root": "Toggle Root",
-                "Toggle R/W": "Toggle R/W",
+                "Toggle R/W": "Toggle R/W",  # Removed (Requires Restart) text
                 "Ready": "Ready",
                 "Error: Config path not initialized.": "Error: Config path not initialized.",
                 "Error reading config: File not found.": "Error reading config: File not found.",
@@ -63,19 +60,30 @@ class BluestacksRootToggle(QWidget):
                 "R/W toggled for {}": "R/W toggled for {}",
                 "R/W toggled for instance: {} to {}": "R/W toggled for instance: {} to {}",
                 "Error toggling R/W for {}: {}": "Error toggling R/W for {}: {}",
-                "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.": "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.",
+                "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.": (
+                    "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync."
+                ),
                 "Error updating status for {}: {}": "Error updating status for {}: {}",
                 "Config file not found: {}": "Config file not found: {}",
                 "Error reading config file: {}": "Error reading config file: {}",
+                "BlueStacks is running. Terminating process...": "BlueStacks is running. Terminating process...",
+                "BlueStacks terminated.": "BlueStacks terminated.",
+                "Error terminating BlueStacks: {}": "Error terminating BlueStacks: {}",
+                "Toggling Root...": "Toggling Root...",
+                "Toggling R/W...": "Toggling R/W...",
+                "Please restart BlueStacks for R/W changes to take effect.": "Please restart BlueStacks for R/W changes to take effect.",
+                "Confirmation": "Confirmation",
+                # New key for the Magisk install reminder popup when turning root on
+                "Magisk install reminder": "After Magisk has installed to the System partition successfully, make sure you come back and turn Root Off.",
             },
-            "ja": {  # Japanese translations
-                "BlueStacks Root GUI": "BlueStacks Root GUI (日本語)",  # Example - Translated title
+            "ja": {
+                "BlueStacks Root GUI": "BlueStacks Root GUI (日本語)",
                 "BlueStacks Path: Loading...": "BlueStacks パス: 読み込み中...",
                 "BlueStacks Path: Not Found": "BlueStacks パス: 見つかりません",
                 "BlueStacks Path: {}": "BlueStacks パス: {}",
                 "Instances": "インスタンス",
                 "Toggle Root": "ルート切り替え",
-                "Toggle R/W": "R/W切り替え",
+                "Toggle R/W": "R/W切り替え",  # Removed (再起動が必要) text
                 "Ready": "準備完了",
                 "Error: Config path not initialized.": "エラー：設定パスが初期化されていません。",
                 "Error reading config: File not found.": "エラー：設定ファイルの読み込みエラー：ファイルが見つかりません。",
@@ -96,133 +104,178 @@ class BluestacksRootToggle(QWidget):
                 "R/W toggled for {}": "{} の R/W を切り替えました",
                 "R/W toggled for instance: {} to {}": "インスタンス {} の R/W を {} に切り替えました",
                 "Error toggling R/W for {}: {}": "{} の R/W 切り替えエラー：{}",
-                "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.": "インスタンス '{}' がチェックボックスにありますが、インスタンスデータに見つかりません。UI が同期していない可能性があります。",
+                "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.": (
+                    "インスタンス '{}' がチェックボックスにありますが、インスタンスデータに見つかりません。UI が同期していない可能性があります。"
+                ),
                 "Error updating status for {}: {}": "{} のステータス更新エラー：{}",
                 "Config file not found: {}": "設定ファイルが見つかりません: {}",
                 "Error reading config file: {}": "設定ファイルの読み込みエラー: {}",
-
+                "BlueStacks is running. Terminating process...": "BlueStacks が実行中です。プロセスを終了しています...",
+                "BlueStacks terminated.": "BlueStacks が終了しました。",
+                "Error terminating BlueStacks: {}": "BlueStacks の終了エラー：{}",
+                "Toggling Root...": "ルート切り替え中...",
+                "Toggling R/W...": "R/W切り替え中...",
+                "Please restart BlueStacks for R/W changes to take effect.": "R/W変更を有効にするにはBlueStacksを再起動してください。",
+                "Confirmation": "確認",
+                # New key for the Magisk install reminder popup when turning root on
+                "Magisk install reminder": "Magiskがシステムパーティションに正常にインストールされた後、必ず戻ってきてルートをオフにしてください。",
             }
-            # Add more languages here if needed (e.g., "es" for Spanish, "fr" for French)
         }
-        # -----------------------------------------
 
-        self.setWindowTitle(self.get_translation("BlueStacks Root GUI")) # Use translation function
+    def get_translation(self, source_text):
+        lang_dict = self.translations.get(self.current_language, {})
+        return lang_dict.get(source_text, source_text)
+
+
+class BluestacksRootToggle(QWidget):
+    """Main GUI class for toggling BlueStacks root and R/W modes."""
+    def __init__(self):
+        super().__init__()
+        self.translation_manager = TranslationManager()
+        self.setWindowTitle(self.translation_manager.get_translation("BlueStacks Root GUI"))
         self.setWindowIcon(QIcon("main.ico"))
+
         self.bluestacks_path = None
         self.config_path = None
         self.instance_data = {}
         self.instance_checkboxes = {}
+        self.is_toggling = False  # Flag to prevent concurrent toggling
+
+        # Timer to update instance statuses periodically
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_instance_statuses)
         self.timer.start(REFRESH_INTERVAL_MS)
+
+        # Initialize the UI components
         self.init_ui()
 
-    def get_translation(self, source_text):
-        """Gets the translation for the given source text in the current language."""
-        lang_dict = self.translations.get(self.current_language)
-        if lang_dict and source_text in lang_dict:
-            return lang_dict[source_text]
-        return source_text  # Return source if no translation found
-
     def init_ui(self):
+        """Initializes and lays out all UI components."""
         main_layout = QVBoxLayout()
 
-        # Language selection combobox
+        # Language selection
         self.language_combo = QComboBox()
-        for lang_code, lang_name in self.languages.items():
-            self.language_combo.addItem(lang_name, lang_code) # Display name, store code as data
-        self.language_combo.currentIndexChanged.connect(self.change_language) # Connect signal
+        for lang_code, lang_name in self.translation_manager.languages.items():
+            self.language_combo.addItem(lang_name, lang_code)
+        self.language_combo.currentIndexChanged.connect(self.change_language)
         main_layout.addWidget(self.language_combo)
 
-
-        self.path_label = QLabel(self.get_translation("BlueStacks Path: Loading...")) # Use translation function
+        # BlueStacks path label
+        self.path_label = QLabel(self.translation_manager.get_translation("BlueStacks Path: Loading..."))
         main_layout.addWidget(self.path_label)
 
-        instance_group = QGroupBox(self.get_translation("Instances")) # Use translation function
-        instance_layout = QVBoxLayout()
-        instance_layout.setObjectName("instance_layout")
-        instance_group.setLayout(instance_layout)
-        main_layout.addWidget(instance_group)
+        # Instances group box and layout
+        self.instance_group = QGroupBox(self.translation_manager.get_translation("Instances"))
+        self.instance_layout = QVBoxLayout()
+        self.instance_layout.setObjectName("instance_layout")
+        self.instance_group.setLayout(self.instance_layout)
+        main_layout.addWidget(self.instance_group)
 
+        # Control buttons layout
         buttons_layout = QHBoxLayout()
-        root_toggle_button = QPushButton(self.get_translation("Toggle Root")) # Use translation function
-        root_toggle_button.clicked.connect(self.toggle_root)
-        buttons_layout.addWidget(root_toggle_button)
+        self.root_toggle_button = QPushButton(self.translation_manager.get_translation("Toggle Root"))
+        self.root_toggle_button.clicked.connect(self.toggle_root)
+        buttons_layout.addWidget(self.root_toggle_button)
 
-        rw_toggle_button = QPushButton(self.get_translation("Toggle R/W")) # Use translation function
-        rw_toggle_button.clicked.connect(self.toggle_rw)
-        buttons_layout.addWidget(rw_toggle_button)
+        # Directly connect the R/W button to toggle_rw without confirmation popup
+        self.rw_toggle_button = QPushButton(self.translation_manager.get_translation("Toggle R/W"))
+        self.rw_toggle_button.clicked.connect(self.toggle_rw)
+        buttons_layout.addWidget(self.rw_toggle_button)
 
         main_layout.addLayout(buttons_layout)
 
-        self.status_label = QLabel(self.get_translation("Ready")) # Use translation function
+        # Status label
+        self.status_label = QLabel(self.translation_manager.get_translation("Ready"))
         self.status_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(self.status_label)
 
+        # Progress bar (indeterminate)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.hide()
+        main_layout.addWidget(self.progress_bar)
+
         self.setLayout(main_layout)
+
+        # Delay initialization of paths and instances until after UI is shown
         QTimer.singleShot(0, self.initialize_paths_and_instances)
 
     def change_language(self, index):
-        """Changes the application language when the combobox is changed."""
-        lang_code = self.language_combo.itemData(index) # Get language code from combobox data
+        """Handles language change and updates all UI text."""
+        lang_code = self.language_combo.itemData(index)
         if lang_code:
-            self.current_language = lang_code
-            self.setWindowTitle(self.get_translation("BlueStacks Root GUI"))
-            self.path_label.setText(self.get_translation("BlueStacks Path: Loading...")) # Update UI text
-            instance_group = self.findChild(QGroupBox, "Instances") # Find the group box by title is less reliable
-            if instance_group:
-                instance_group.setTitle(self.get_translation("Instances"))
-            root_toggle_button = self.findChild(QPushButton, "Toggle Root") # Find buttons by text is less reliable
-            if root_toggle_button:
-                root_toggle_button.setText(self.get_translation("Toggle Root"))
-            rw_toggle_button = self.findChild(QPushButton, "Toggle R/W")
-            if rw_toggle_button:
-                rw_toggle_button.setText(self.get_translation("Toggle R/W"))
-            self.status_label.setText(self.get_translation("Ready"))
-            self.update_instance_checkboxes_text() # Update text in instance checkboxes
-            self.initialize_paths_and_instances() # Re-initialize messages that might depend on language
+            self.translation_manager.current_language = lang_code
+            self.setWindowTitle(self.translation_manager.get_translation("BlueStacks Root GUI"))
+            self.path_label.setText(self.translation_manager.get_translation("BlueStacks Path: Loading..."))
+            self.instance_group.setTitle(self.translation_manager.get_translation("Instances"))
+            self.root_toggle_button.setText(self.translation_manager.get_translation("Toggle Root"))
+            self.rw_toggle_button.setText(self.translation_manager.get_translation("Toggle R/W"))
+            self.status_label.setText(self.translation_manager.get_translation("Ready"))
+            self.update_instance_checkboxes_text()
+            self.initialize_paths_and_instances()
 
     def update_instance_checkboxes_text(self):
-        """Updates the text (Root: On/Off, R/W: On/Off) in instance checkboxes after language change."""
+        """Updates the checkbox status texts according to the current language."""
         for name, widgets in self.instance_checkboxes.items():
-            data = self.instance_data.get(name, {}) # Safely get data, handle cases where instance might be removed
-            if data: # Only update if instance data exists
+            data = self.instance_data.get(name, {})
+            if data:
+                root_text = self.translation_manager.get_translation("On") if data['root_enabled'] else self.translation_manager.get_translation("Off")
+                rw_text = self.translation_manager.get_translation("On") if data['rw_mode'] == 'Normal' else self.translation_manager.get_translation("Off")
                 widgets["root_status"].setText(
-                    self.get_translation("Root: {}").format(self.get_translation("On") if data['root_enabled'] else self.get_translation("Off"))
+                    self.translation_manager.get_translation("Root: {}").format(root_text)
                 )
                 widgets["rw_status"].setText(
-                    self.get_translation("R/W: {}").format(self.get_translation("On") if data['rw_mode'] == 'Normal' else self.get_translation("Off"))
+                    self.translation_manager.get_translation("R/W: {}").format(rw_text)
                 )
 
+    def check_and_kill_bluestacks(self):
+        """Terminates BlueStacks if it is running."""
+        self.status_label.setText(self.translation_manager.get_translation("BlueStacks is running. Terminating process..."))
+        self.progress_bar.show()
+        QApplication.processEvents()  # Update UI immediately
+        try:
+            instance_handler.terminate_bluestacks()
+            self.status_label.setText(self.translation_manager.get_translation("BlueStacks terminated."))
+            logging.info(self.translation_manager.get_translation("BlueStacks terminated."))
+        except Exception as e:
+            error_message = self.translation_manager.get_translation("Error terminating BlueStacks: {}").format(e)
+            self.status_label.setText(error_message)
+            logging.exception(error_message)
+        finally:
+            self.progress_bar.hide()
+            QApplication.processEvents()
 
     def initialize_paths_and_instances(self):
-        """Initializes Bluestacks paths and instance data."""
+        """Initializes BlueStacks paths and loads instance data."""
+        self.status_label.setText(self.translation_manager.get_translation("BlueStacks Path: Loading..."))
+        QApplication.processEvents()
         user_defined_dir = registry_handler.get_bluestacks_path("UserDefinedDir")
         if user_defined_dir:
             self.config_path = os.path.join(user_defined_dir, BLUESTACKS_CONF_FILENAME)
         else:
-            error_message = self.get_translation("BlueStacks UserDefinedDir registry key not found.")
-            self.path_label.setText(self.get_translation("BlueStacks Path: Not Found"))
+            error_message = self.translation_manager.get_translation("BlueStacks UserDefinedDir registry key not found.")
+            self.path_label.setText(self.translation_manager.get_translation("BlueStacks Path: Not Found"))
             self.status_label.setText(error_message)
             logging.error(error_message)
             return
 
         self.bluestacks_path = registry_handler.get_bluestacks_path("DataDir")
         if self.bluestacks_path:
-            self.path_label.setText(self.get_translation("BlueStacks Path: {}").format(self.bluestacks_path))
+            self.path_label.setText(self.translation_manager.get_translation("BlueStacks Path: {}").format(self.bluestacks_path))
             self.update_instance_data()
             self.update_instance_checkboxes()
             self.update_instance_statuses()
+            self.status_label.setText(self.translation_manager.get_translation("Ready"))
         else:
-            error_message = self.get_translation("BlueStacks DataDir registry key not found.")
-            self.path_label.setText(self.get_translation("BlueStacks Path: Not Found"))
+            error_message = self.translation_manager.get_translation("BlueStacks DataDir registry key not found.")
+            self.path_label.setText(self.translation_manager.get_translation("BlueStacks Path: Not Found"))
             self.status_label.setText(error_message)
             logging.error(error_message)
 
     def update_instance_data(self):
-        """Updates instance data from bluestacks.conf."""
+        """Reads the config file to update instance data."""
         if not self.config_path:
-            self.status_label.setText(self.get_translation("Error: Config path not initialized."))
+            self.status_label.setText(self.translation_manager.get_translation("Error: Config path not initialized."))
             logging.error("Config path not initialized when trying to update instance data.")
             return
         try:
@@ -231,8 +284,9 @@ class BluestacksRootToggle(QWidget):
                 for line in f:
                     if line.startswith(INSTANCE_PREFIX) and ENABLE_ROOT_KEY in line:
                         parts = line.strip().split("=")
-                        if len(parts) > 0:
+                        if parts:
                             key_part = parts[0]
+                            # Instance name is expected to be the third component
                             instance = key_part.split(".")[2]
                             if not instance:
                                 logging.warning(f"Could not parse instance name from line: {line.strip()}")
@@ -244,17 +298,16 @@ class BluestacksRootToggle(QWidget):
                             }
             self.instance_data = new_data
         except FileNotFoundError:
-            error_message = self.get_translation("Config file not found: {}").format(self.config_path)
-            self.status_label.setText(self.get_translation("Error reading config: File not found."))
+            error_message = self.translation_manager.get_translation("Config file not found: {}").format(self.config_path)
+            self.status_label.setText(self.translation_manager.get_translation("Error reading config: File not found."))
             logging.error(error_message)
         except Exception as e:
-            error_message = self.get_translation("Error reading config file: {}").format(e)
-            self.status_label.setText(self.get_translation("Error reading config: {}").format(e))
+            error_message = self.translation_manager.get_translation("Error reading config file: {}").format(e)
+            self.status_label.setText(self.translation_manager.get_translation("Error reading config: {}").format(e))
             logging.exception(error_message)
 
-
     def detect_instances(self, layout):
-        """Detects and updates instance checkboxes based on instance data."""
+        """Detects and updates instance checkboxes in the UI."""
         if not self.instance_data:
             return
 
@@ -266,9 +319,11 @@ class BluestacksRootToggle(QWidget):
             data = self.instance_data[name]
             hbox = QHBoxLayout()
             checkbox = QCheckBox(name)
-            root_status = QLineEdit(self.get_translation("Root: {}").format(self.get_translation("On") if data['root_enabled'] else self.get_translation("Off")))
+            root_text = self.translation_manager.get_translation("On") if data['root_enabled'] else self.translation_manager.get_translation("Off")
+            rw_text = self.translation_manager.get_translation("On") if data['rw_mode'] == 'Normal' else self.translation_manager.get_translation("Off")
+            root_status = QLineEdit(self.translation_manager.get_translation("Root: {}").format(root_text))
             root_status.setReadOnly(True)
-            rw_status = QLineEdit(self.get_translation("R/W: {}").format(self.get_translation("On") if data['rw_mode'] == 'Normal' else self.get_translation("Off")))
+            rw_status = QLineEdit(self.translation_manager.get_translation("R/W: {}").format(rw_text))
             rw_status.setReadOnly(True)
             hbox.addWidget(checkbox)
             hbox.addWidget(root_status)
@@ -285,13 +340,13 @@ class BluestacksRootToggle(QWidget):
         for name in new_instances & current_instances:
             data = self.instance_data[name]
             self.instance_checkboxes[name]["root_status"].setText(
-                self.get_translation("Root: {}").format(self.get_translation("On") if data['root_enabled'] else self.get_translation("Off"))
+                self.translation_manager.get_translation("On") if data['root_enabled'] else self.translation_manager.get_translation("Off")
             )
             self.instance_checkboxes[name]["rw_status"].setText(
-                self.get_translation("R/W: {}").format(self.get_translation("On") if data['rw_mode'] == 'Normal' else self.get_translation("Off"))
+                self.translation_manager.get_translation("On") if data['rw_mode'] == 'Normal' else self.translation_manager.get_translation("Off")
             )
 
-        # Remove old instances
+        # Remove instances no longer present
         for name in current_instances - new_instances:
             widgets = self.instance_checkboxes.pop(name)
             layout.removeItem(widgets["layout"])
@@ -300,26 +355,45 @@ class BluestacksRootToggle(QWidget):
             widgets["root_status"].deleteLater()
             widgets["rw_status"].deleteLater()
 
-
     def update_instance_checkboxes(self):
-        """Updates the instance checkboxes in the UI."""
-        layout = self.findChild(QVBoxLayout, "instance_layout")
-        if layout is None:
-            logging.error("Instance layout not found during update_instance_checkboxes.")
-            return
-
-        self.detect_instances(layout)
+        """Updates the instance checkboxes area with current instance data."""
+        self.detect_instances(self.instance_layout)
 
     def toggle_root(self):
-        """Toggles root access for selected instances."""
+        """Toggles the root access for selected instances."""
+        if self.is_toggling:
+            return  # Prevent concurrent toggling
+
+        self.is_toggling = True
+        self.status_label.setText(self.translation_manager.get_translation("Toggling Root..."))
+        self.progress_bar.show()
+        QApplication.processEvents()
+        self.root_toggle_button.setEnabled(False)
+
+        self.check_and_kill_bluestacks()
+
         if not self.config_path:
-            self.status_label.setText(self.get_translation("Error: bluestacks.conf not found."))
+            self.status_label.setText(self.translation_manager.get_translation("Error: bluestacks.conf not found."))
             logging.error("bluestacks.conf path not found when toggling root.")
+            self.reset_ui_after_toggle()
             return
-        selected_instances = [name for name, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()]
+
+        selected_instances = [
+            name for name, widgets in self.instance_checkboxes.items()
+            if widgets["checkbox"].isChecked()
+        ]
         if not selected_instances:
-            self.status_label.setText(self.get_translation("No instances selected to toggle root."))
+            self.status_label.setText(self.translation_manager.get_translation("No instances selected to toggle root."))
+            self.reset_ui_after_toggle()
             return
+
+        # If any selected instance is being enabled (currently off), show the Magisk install reminder popup.
+        if any(not self.instance_data[name]["root_enabled"] for name in selected_instances):
+            popup = QMessageBox()
+            popup.setWindowTitle(self.translation_manager.get_translation("Confirmation"))
+            popup.setIcon(QMessageBox.Information)
+            popup.setText(self.translation_manager.get_translation("Magisk install reminder"))
+            popup.exec_()
 
         for name in selected_instances:
             try:
@@ -330,67 +404,120 @@ class BluestacksRootToggle(QWidget):
                 )
                 config_handler.modify_config_file(self.config_path, FEATURE_ROOTING_KEY, new_state)
                 self.instance_data[name]["root_enabled"] = not curr
+                new_status = self.translation_manager.get_translation("On") if not curr else self.translation_manager.get_translation("Off")
                 self.instance_checkboxes[name]["root_status"].setText(
-                    self.get_translation("Root: {}").format(self.get_translation("On") if not curr else self.get_translation("Off"))
+                    self.translation_manager.get_translation("Root: {}").format(new_status)
                 )
-                self.status_label.setText(self.get_translation("Root toggled for {}").format(name))
-                logging.info(self.get_translation("Root toggled for instance: {} to {}").format(name, self.get_translation("On") if not curr else self.get_translation("Off")))
+                self.status_label.setText(self.translation_manager.get_translation("Root toggled for {}").format(name))
+                logging.info(
+                    self.translation_manager.get_translation("Root toggled for instance: {} to {}").format(
+                        name, new_status
+                    )
+                )
             except Exception as e:
-                error_message = self.get_translation("Error toggling root for {}: {}").format(name, e)
+                error_message = self.translation_manager.get_translation("Error toggling root for {}: {}").format(name, e)
                 self.status_label.setText(error_message)
                 logging.exception(error_message)
+                break  # Stop on first error
+
+        self.reset_ui_after_toggle()
+
+    def reset_ui_after_toggle(self):
+        """Resets UI elements after toggling operations."""
+        self.is_toggling = False
+        self.progress_bar.hide()
+        self.root_toggle_button.setEnabled(True)
+        self.rw_toggle_button.setEnabled(True)
+        QApplication.processEvents()
 
     def toggle_rw(self):
         """Toggles read/write mode for selected instances."""
+        if self.is_toggling:
+            return
+
+        self.is_toggling = True
+        self.status_label.setText(self.translation_manager.get_translation("Toggling R/W..."))
+        self.progress_bar.show()
+        QApplication.processEvents()
+        self.rw_toggle_button.setEnabled(False)
+
+        self.check_and_kill_bluestacks()
+
         if not self.bluestacks_path:
-            self.status_label.setText(self.get_translation("Error: BlueStacks path not found."))
+            self.status_label.setText(self.translation_manager.get_translation("Error: BlueStacks path not found."))
             logging.error("BlueStacks path not found when toggling R/W.")
+            self.reset_ui_after_toggle()
             return
 
-        selected_instances = [name for name, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()]
+        selected_instances = [
+            name for name, widgets in self.instance_checkboxes.items()
+            if widgets["checkbox"].isChecked()
+        ]
         if not selected_instances:
-            self.status_label.setText(self.get_translation("No instances selected to toggle R/W."))
+            self.status_label.setText(self.translation_manager.get_translation("No instances selected to toggle R/W."))
+            self.reset_ui_after_toggle()
             return
 
+        engine_path = os.path.join(self.bluestacks_path, "Rvc64")
         for name in selected_instances:
             try:
-                path = os.path.join(self.bluestacks_path, name)
+                instance_path = os.path.join(self.bluestacks_path, name)
                 curr = self.instance_data[name]["rw_mode"]
                 new_mode = "Normal" if curr == "Readonly" else "Readonly"
-                instance_handler.modify_instance_files(path, [FASTBOOT_VDI, ROOT_VHD], new_mode)
+
+                # Check for required BSTK file
+                bstk_file_path = os.path.join(engine_path, "Android.bstk.in")
+                if not os.path.exists(bstk_file_path):
+                    error_message = f"BSTK file not found at {bstk_file_path}"
+                    self.status_label.setText(error_message)
+                    logging.error(error_message)
+                    continue
+
+                instance_handler.modify_instance_files(engine_path, instance_path, [FASTBOOT_VDI, ROOT_VHD], new_mode)
                 self.instance_data[name]["rw_mode"] = new_mode
+                new_status = self.translation_manager.get_translation("On") if new_mode == "Normal" else self.translation_manager.get_translation("Off")
                 self.instance_checkboxes[name]["rw_status"].setText(
-                    self.get_translation("R/W: {}").format(self.get_translation("On") if new_mode == 'Normal' else self.get_translation("Off"))
+                    self.translation_manager.get_translation("R/W: {}").format(new_status)
                 )
-                self.status_label.setText(self.get_translation("R/W toggled for {}").format(name))
-                logging.info(self.get_translation("R/W toggled for instance: {} to {}").format(name, new_mode))
+                self.status_label.setText(self.translation_manager.get_translation("R/W toggled for {}").format(name))
+                logging.info(
+                    self.translation_manager.get_translation("R/W toggled for instance: {} to {}").format(name, new_mode)
+                )
             except Exception as e:
-                error_message = self.get_translation("Error toggling R/W for {}: {}").format(name, e)
+                error_message = self.translation_manager.get_translation("Error toggling R/W for {}: {}").format(name, e)
                 self.status_label.setText(error_message)
                 logging.exception(error_message)
+                break
+
+        self.reset_ui_after_toggle()
 
     def update_instance_statuses(self):
-        """Updates the status of instances in the UI."""
+        """Periodically updates the status of each instance in the UI."""
+        if self.is_toggling:
+            return
         self.update_instance_data()
         for name, widgets in self.instance_checkboxes.items():
             try:
                 if name in self.instance_data:
+                    root_text = self.translation_manager.get_translation("On") if self.instance_data[name]['root_enabled'] else self.translation_manager.get_translation("Off")
+                    rw_text = self.translation_manager.get_translation("On") if self.instance_data[name]['rw_mode'] == 'Normal' else self.translation_manager.get_translation("Off")
                     widgets["root_status"].setText(
-                        self.get_translation("Root: {}").format(self.get_translation("On") if self.instance_data[name]['root_enabled'] else self.get_translation("Off"))
+                        self.translation_manager.get_translation("Root: {}").format(root_text)
                     )
                     widgets["rw_status"].setText(
-                        self.get_translation("R/W: {}").format(self.get_translation("On") if self.instance_data[name]['rw_mode'] == 'Normal' else self.get_translation("Off"))
+                        self.translation_manager.get_translation("R/W: {}").format(rw_text)
                     )
                 else:
-                    logging.warning(self.get_translation("Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.").format(name))
+                    logging.warning(
+                        self.translation_manager.get_translation("Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.").format(name)
+                    )
             except Exception as e:
-                error_message = self.get_translation("Error updating status for {}: {}").format(name, e)
+                error_message = self.translation_manager.get_translation("Error updating status for {}: {}").format(name, e)
                 self.status_label.setText(error_message)
                 logging.exception(error_message)
 
-
     def closeEvent(self, event):
-        """Handles the close event of the main window."""
+        """Handles cleanup on application close."""
         self.timer.stop()
         logging.info("BlueStacks Root GUI closed.")
         event.accept()
