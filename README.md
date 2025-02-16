@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > This is an unofficial modification for the BlueStacks Android emulator. If you encounter any issues, please open a GitHub issue.
 >
-> *As of January 9, 2025, this tool works as expected. However, it's important to note that this method is not compatible with Nougat instances. This README will be updated if that changes.*
+> *As of February 16th, 2025, this tool works as expected. However, it's important to note that this method is not compatible with Nougat instances. This README will be updated if that changes.*
 
 This GUI streamlines the configuration process outlined in my guide to [rooting BlueStacks](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/). While it simplifies certain steps, **both repositories** are still required for complete rooting because the linked repository contains the core rooting process. This tool lets you toggle root access and enable read/write permissions for the filesystem within the `bluestacks.conf` file of selected BlueStacks instances, providing a user-friendly alternative to manual editing.
 
