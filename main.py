@@ -458,9 +458,9 @@ class BluestacksRootToggle(QWidget):
             self.reset_ui_after_toggle()
             return
 
-        engine_path = os.path.join(self.bluestacks_path, "Rvc64")
         for name in selected_instances:
             try:
+                engine_path = os.path.join(self.bluestacks_path, name)
                 instance_path = os.path.join(self.bluestacks_path, name)
                 curr = self.instance_data[name]["rw_mode"]
                 new_mode = "Normal" if curr == "Readonly" else "Readonly"
@@ -490,6 +490,9 @@ class BluestacksRootToggle(QWidget):
                 break
 
         self.reset_ui_after_toggle()
+
+
+
 
     def update_instance_statuses(self):
         """Periodically updates the status of each instance in the UI."""
