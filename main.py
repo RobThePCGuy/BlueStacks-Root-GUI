@@ -232,10 +232,13 @@ class BluestacksRootToggle(QWidget):
             instance_handler.terminate_bluestacks()
             self.status_label.setText(self.translation_manager.get_translation("BlueStacks terminated."))
             logging.info(self.translation_manager.get_translation("BlueStacks terminated."))
+            # Add a small delay to ensure processes are fully terminated
+            QThread.msleep(1000)
         except Exception as e:
             error_message = self.translation_manager.get_translation("Error terminating BlueStacks: {}").format(e)
             self.status_label.setText(error_message)
             logging.exception(error_message)
+            raise  # Re-raise the exception to be caught by the worker
         finally:
             self.progress_bar.hide()
 
@@ -363,32 +366,38 @@ class BluestacksRootToggle(QWidget):
         self.thread.start()
 
     def toggle_root_operation(self) -> None:
-        self.check_and_kill_bluestacks()
+        try:
+            self.check_and_kill_bluestacks()
 
-        if not self.config_path:
-            raise Exception(self.translation_manager.get_translation("Error: bluestacks.conf not found."))
+            if not self.config_path:
+                raise Exception(self.translation_manager.get_translation("Error: bluestacks.conf not found."))
 
-        selected = [name for name, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()]
-        if not selected:
-            raise Exception(self.translation_manager.get_translation("No instances selected to toggle root."))
+            selected = [name for name, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()]
+            if not selected:
+                raise Exception(self.translation_manager.get_translation("No instances selected to toggle root."))
 
-        # Show reminder if enabling root
-        if any(not self.instance_data[name]["root_enabled"] for name in selected):
-            popup = QMessageBox()
-            popup.setWindowTitle(self.translation_manager.get_translation("Confirmation"))
-            popup.setIcon(QMessageBox.Information)
-            popup.setText(self.translation_manager.get_translation("Magisk install reminder"))
-            popup.exec_()
+            # Show reminder if enabling root
+            if any(not self.instance_data[name]["root_enabled"] for name in selected):
+                # Move the popup to the main thread using a signal
+                self.worker.error.emit("show_reminder")
+                # Add a small delay to wait for user interaction
+                QThread.msleep(500)
 
-        for name in selected:
-            current_state = self.instance_data[name]["root_enabled"]
-            new_state = "0" if current_state else "1"
-            config_handler.modify_config_file(self.config_path, f"{INSTANCE_PREFIX}{name}{ENABLE_ROOT_KEY}", new_state)
-            config_handler.modify_config_file(self.config_path, FEATURE_ROOTING_KEY, new_state)
-            self.instance_data[name]["root_enabled"] = not current_state
-            status_text = self.translation_manager.get_translation("On") if not current_state else self.translation_manager.get_translation("Off")
-            self.instance_checkboxes[name]["root_status"].setText(self.translation_manager.get_translation("Root: {}").format(status_text))
-            logging.info(self.translation_manager.get_translation("Root toggled for instance: {} to {}").format(name, status_text))
+            for name in selected:
+                current_state = self.instance_data[name]["root_enabled"]
+                new_state = "0" if current_state else "1"
+                if not config_handler.modify_config_file(self.config_path, f"{INSTANCE_PREFIX}{name}{ENABLE_ROOT_KEY}", new_state):
+                    raise Exception(f"Failed to modify root setting for instance {name}")
+                if not config_handler.modify_config_file(self.config_path, FEATURE_ROOTING_KEY, new_state):
+                    raise Exception(f"Failed to modify feature rooting setting")
+                
+                self.instance_data[name]["root_enabled"] = not current_state
+                status_text = self.translation_manager.get_translation("On") if not current_state else self.translation_manager.get_translation("Off")
+                logging.info(self.translation_manager.get_translation("Root toggled for instance: {} to {}").format(name, status_text))
+
+        except Exception as e:
+            logging.error(f"Error in toggle_root_operation: {str(e)}")
+            raise
 
     def handle_toggle_rw(self) -> None:
         if self.is_toggling:
@@ -407,50 +416,78 @@ class BluestacksRootToggle(QWidget):
         self.thread.start()
 
     def toggle_rw_operation(self) -> None:
-        self.check_and_kill_bluestacks()
+        try:
+            self.check_and_kill_bluestacks()
 
-        if not self.bluestacks_path:
-            raise Exception(self.translation_manager.get_translation("Error: BlueStacks path not found."))
+            if not self.bluestacks_path:
+                raise Exception(self.translation_manager.get_translation("Error: BlueStacks path not found."))
 
-        selected = [name for name, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()]
-        if not selected:
-            raise Exception(self.translation_manager.get_translation("No instances selected to toggle R/W."))
+            selected = [name for name, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()]
+            if not selected:
+                raise Exception(self.translation_manager.get_translation("No instances selected to toggle R/W."))
 
-        for name in selected:
-            engine_path = os.path.join(self.bluestacks_path, name)
-            instance_path = os.path.join(self.bluestacks_path, name)
-            current_mode = self.instance_data[name]["rw_mode"]
-            new_mode = "Normal" if current_mode == "Readonly" else "Readonly"
+            for name in selected:
+                engine_path = os.path.join(self.bluestacks_path, name)
+                instance_path = os.path.join(self.bluestacks_path, name)
+                current_mode = self.instance_data[name]["rw_mode"]
+                new_mode = "Normal" if current_mode == "Readonly" else "Readonly"
 
-            bstk_file_path = os.path.join(engine_path, "Android.bstk.in")
-            if not os.path.exists(bstk_file_path):
-                logging.error(f"BSTK file not found at {bstk_file_path}")
-                continue
+                bstk_file_path = os.path.join(engine_path, "Android.bstk.in")
+                if not os.path.exists(bstk_file_path):
+                    raise Exception(f"BSTK file not found at {bstk_file_path}")
 
-            instance_handler.modify_instance_files(engine_path, instance_path, [FASTBOOT_VDI, ROOT_VHD], new_mode)
-            self.instance_data[name]["rw_mode"] = new_mode
-            status_text = self.translation_manager.get_translation("On") if new_mode == "Normal" else self.translation_manager.get_translation("Off")
-            self.instance_checkboxes[name]["rw_status"].setText(self.translation_manager.get_translation("R/W: {}").format(status_text))
-            logging.info(self.translation_manager.get_translation("R/W toggled for instance: {} to {}").format(name, new_mode))
+                try:
+                    instance_handler.modify_instance_files(engine_path, instance_path, [FASTBOOT_VDI, ROOT_VHD], new_mode)
+                except Exception as e:
+                    raise Exception(f"Failed to modify instance files for {name}: {str(e)}")
+
+                self.instance_data[name]["rw_mode"] = new_mode
+                status_text = self.translation_manager.get_translation("On") if new_mode == "Normal" else self.translation_manager.get_translation("Off")
+                logging.info(self.translation_manager.get_translation("R/W toggled for instance: {} to {}").format(name, new_mode))
+
+        except Exception as e:
+            logging.error(f"Error in toggle_rw_operation: {str(e)}")
+            raise
 
     def on_toggle_finished(self) -> None:
-        self.is_toggling = False
-        self.progress_bar.hide()
-        self.root_toggle_button.setEnabled(True)
-        self.rw_toggle_button.setEnabled(True)
-        self.thread.quit()
-        self.thread.wait()
-        self.status_label.setText(self.translation_manager.get_translation("Ready"))
+        try:
+            self.is_toggling = False
+            self.progress_bar.hide()
+            self.root_toggle_button.setEnabled(True)
+            self.rw_toggle_button.setEnabled(True)
+            if hasattr(self, 'thread'):
+                self.thread.quit()
+                self.thread.wait()
+            self.status_label.setText(self.translation_manager.get_translation("Ready"))
+            # Update the UI after toggle operation
+            self.update_instance_data()
+            self.update_instance_checkboxes()
+        except Exception as e:
+            logging.error(f"Error in on_toggle_finished: {str(e)}")
+            self.status_label.setText(str(e))
 
     def on_worker_error(self, error_message: str) -> None:
-        self.status_label.setText(error_message)
-        logging.error(error_message)
-        self.is_toggling = False
-        self.progress_bar.hide()
-        self.root_toggle_button.setEnabled(True)
-        self.rw_toggle_button.setEnabled(True)
-        self.thread.quit()
-        self.thread.wait()
+        try:
+            if error_message == "show_reminder":
+                popup = QMessageBox()
+                popup.setWindowTitle(self.translation_manager.get_translation("Confirmation"))
+                popup.setIcon(QMessageBox.Information)
+                popup.setText(self.translation_manager.get_translation("Magisk install reminder"))
+                popup.exec_()
+                return
+
+            self.status_label.setText(error_message)
+            logging.error(error_message)
+            self.is_toggling = False
+            self.progress_bar.hide()
+            self.root_toggle_button.setEnabled(True)
+            self.rw_toggle_button.setEnabled(True)
+            if hasattr(self, 'thread'):
+                self.thread.quit()
+                self.thread.wait()
+        except Exception as e:
+            logging.error(f"Error in on_worker_error: {str(e)}")
+            self.status_label.setText(str(e))
 
     def update_instance_statuses(self) -> None:
         if self.is_toggling:
