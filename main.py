@@ -37,6 +37,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    path = os.path.join(base_path, relative_path)
+    return path
+
+
 class Worker(QObject):
     """
     Runs a function in a separate thread and emits signals upon completion or error.
@@ -306,15 +319,17 @@ class BluestacksRootToggle(QWidget):
     def _set_icon(self):
         """Sets the window icon if the icon file exists."""
         try:
-            app_icon = QIcon(constants.ICON_FILENAME)
+            icon_path = resource_path(constants.ICON_FILENAME)
+            app_icon = QIcon(icon_path)
             if not app_icon.isNull():
                 self.setWindowIcon(app_icon)
+                logger.debug(f"Window icon set from {icon_path}")
             else:
                 logger.warning(
-                    f"{constants.ICON_FILENAME} not found or is invalid. Skipping window icon."
+                    f"Icon file loaded from {icon_path} but QIcon is null. Check icon validity/path."
                 )
         except Exception as e:
-            logger.error(f"Error setting window icon: {e}")
+            logger.error(f"Error setting window icon using resource_path: {e}")
 
     def init_ui(self) -> None:
         """Creates and arranges the UI widgets."""
@@ -1134,14 +1149,17 @@ if __name__ == "__main__":
             logger.error(f"Error setting AppUserModelID: {e}")
 
     app = QApplication(sys.argv)
-    app_icon = QIcon(constants.ICON_FILENAME)
-    if not app_icon.isNull():
-        app.setWindowIcon(app_icon)
-        logger.debug(f"Application icon set from {constants.ICON_FILENAME}")
-    else:
-        logger.warning(
-            f"Application icon file '{constants.ICON_FILENAME}' not found or invalid."
-        )
+
+    try:
+        icon_path = resource_path(constants.ICON_FILENAME)
+        app_icon = QIcon(icon_path)
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
+            logger.debug(f"Application icon set from {icon_path}")
+        else:
+            logger.warning(f"App icon file loaded from {icon_path} but QIcon is null.")
+    except Exception as e:
+        logger.error(f"Error setting application icon using resource_path: {e}")
 
     window = BluestacksRootToggle()
     window.show()

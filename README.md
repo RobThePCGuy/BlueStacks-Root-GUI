@@ -77,7 +77,7 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 5.  **Build the Executable (Optional):**
     ```bash
     pip install pyinstaller
-    pyinstaller --onefile --windowed --icon=favicon.ico --name BlueStacksRootGUI main.py
+    pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --name BlueStacksRootGUI main.py
     ```
     The executable will be in the `dist/` folder.
 
