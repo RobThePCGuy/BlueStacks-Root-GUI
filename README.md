@@ -18,8 +18,8 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 - [Usage Guide](#usage-guide)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
-- [Changelog](#changelog)
 - [Contributing](#contributing)
+- [Changelog](#changelog)
 - [License](#license)
 
 ---
@@ -35,8 +35,6 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 - **Responsive UI:** Uses background threads (`QThread`) for potentially long operations (file I/O, process termination) to keep the GUI responsive.
 - **Basic Internationalization:** Includes English and Japanese translations.
 
----
-
 ## Prerequisites
 
 - **Operating System:** Windows 10 or later (due to registry keys and file paths used).
@@ -44,8 +42,6 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 - **Python (for development):** Python 3.7+
 - **Administrator Rights:** **Required** to read the HKLM registry and terminate BlueStacks processes effectively. Run the application as an administrator.
 - **Dependencies:** Listed in `requirements.txt`. Key dependencies include `PyQt5`, `pywin32`, `psutil`.
-
----
 
 ## Installation & Download
 
@@ -85,8 +81,6 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
     ```
     The executable will be in the `dist/` folder.
 
----
-
 ## Usage Guide
 
 1.  **Launch as Administrator:** Start the GUI (`.exe` or `python main.py`) with administrator privileges.
@@ -117,8 +111,6 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 8.  **Verify:** Launch the instance. Open Kitsune Mask; it should show as installed and active. Root applications should now work.
 9.  **Close:** Close the BlueStacks Root GUI.
 
----
-
 ## Troubleshooting
 
 -   **"Path Not Found" / No Instances Listed:**
@@ -135,8 +127,6 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
     *   Try closing and reopening the Kitsune Mask app within the BlueStacks instance.
 -   **Errors during Toggle Operations:** Check the status bar in the GUI and the application logs (if run from source/console) for specific error messages.
 
----
-
 ## Development
 
 Follow the steps in [Installation & Download > For Developers](#for-developers-building-from-source).
@@ -147,14 +137,6 @@ Key modules:
 - `instance_handler.py`: Modifies `.bstk` files, handles processes.
 - `registry_handler.py`: Reads BlueStacks paths from Windows Registry.
 - `constants.py`: Shared constant values (keys, filenames, modes, etc.).
-
----
-
-## Changelog
-
-*(See commit history for details)*
-
----
 
 ## Contributing
 
@@ -168,7 +150,67 @@ Contributions are welcome! Please follow these guidelines:
 -   Submit pull requests with clear descriptions of changes.
 -   Open an issue to discuss significant changes beforehand.
 
----
+## Changelog 
+
+> v2.1 vs v2
+
+### Major Changes
+
+*   **Code Modularization:** The entire application has been restructured from a single `main.py` file into multiple focused modules:
+    *   `main.py`: Handles the GUI (PyQt5), application logic, and threading.
+    *   `config_handler.py`: Dedicated to reading and writing `bluestacks.conf`.
+    *   `instance_handler.py`: Manages instance file (`.bstk`) modifications and BlueStacks process handling.
+    *   `registry_handler.py`: Specifically handles reading BlueStacks paths from the Windows Registry.
+    *   `constants.py`: Centralizes all constants (file names, keys, modes, etc.) for easier maintenance and consistency.
+*   **Improved Error Handling & Reporting:**
+    *   More specific exceptions are caught and raised throughout the helper modules (`FileNotFoundError`, `IOError`, `ValueError`, etc.).
+    *   Worker threads now emit more granular error messages and status updates to the main UI, distinguishing between critical failures and per-instance issues.
+    *   Functions now often return `Optional[...]` types (like `Optional[bool]`) to better represent indeterminate states (e.g., when a file is missing or unreadable).
+
+### Improvements
+
+*   **Configuration Handling (`config_handler.py`):**
+    *   Uses regular expressions for more reliable parsing of `bluestacks.conf` settings.
+    *   `modify_config_file` now correctly handles appending new settings if they don't exist and avoids writing the file if no changes are actually made.
+    *   `get_all_instance_root_statuses` provides an efficient way to read all instance statuses at once.
+*   **Instance File Handling (`instance_handler.py`):**
+    *   `modify_instance_files` uses more robust regex (`REGEX_BSTK_TYPE_PATTERN`) to find and replace the `Type` attribute in `.bstk` files, handling different whitespace and casing.
+    *   `is_instance_readonly` now checks specifically for the `Readonly` type associated with target disk files and returns `None` if the status cannot be determined (e.g., file missing, read error), preventing incorrect assumptions.
+*   **Process Management (`instance_handler.py`):**
+    *   `terminate_bluestacks` implements a more robust termination sequence: attempts graceful `terminate()`, waits (`PROCESS_KILL_TIMEOUT_S`), and then forcefully `kill()` any remaining processes.
+    *   Uses a more comprehensive list of `BLUESTACKS_PROCESS_NAMES` from `constants.py`.
+    *   `is_bluestacks_running` uses `psutil` for efficient process checking.
+*   **Registry Access (`registry_handler.py`):**
+    *   More specific error handling for `FileNotFoundError` and `PermissionError` during registry access.
+    *   Checks the registry value type (`REG_SZ`) to ensure a string path is returned.
+*   **GUI & User Experience (`main.py`):**
+    *   Instance list now uses `QGridLayout` for potentially better column alignment.
+    *   Path label now displays both the `UserDefinedDir` and `DataDir` paths found.
+    *   Language selection ComboBox moved to the top-left for better visibility.
+    *   Added tooltips to the "Toggle Root" and "Toggle R/W" buttons explaining their function.
+    *   Added a specific, clearer "Kitsune Mask Install Reminder" popup message with updated instructions.
+    *   Worker thread emits detailed status messages (`operation_message` signal) during operations (e.g., "Toggling Root for Nougat64...").
+    *   Improved cleanup logic for the background thread (`QThread`).
+    *   Added Windows AppUserModelID setting for better taskbar integration (pinning, icon grouping).
+    *   Icon handling is more robust, checking for file existence.
+*   **Logging:**
+    *   Standardized logging setup using `logging.basicConfig`.
+    *   Modules use `logger = logging.getLogger(__name__)` for better log organization.
+    *   Increased logging detail, especially at the DEBUG level.
+
+### Fixes
+
+*   **Potential State Inconsistencies:** Improved logic for reading R/W status (`is_instance_readonly`) reduces the chance of misrepresenting the state if files are unreadable or missing attributes.
+*   **Configuration File Writing:** `modify_config_file` now avoids unnecessary file writes if the value is already correct.
+*   **Instance File Modification:** More reliable identification and modification of the `Type` attribute in `.bstk` files due to regex usage.
+
+### Code Quality & Refactoring
+
+*   Massive refactoring into separate modules improves readability and maintainability.
+*   Introduction of `constants.py` eliminates magic strings and numbers.
+*   Increased use of type hinting (`typing` module) enhances code clarity and allows for static analysis.
+*   Removed unused dependencies (`lxml`, `pillow`, `python-docx`) from `requirements.txt`.
+*   Improved docstrings across functions and classes.
 
 ## License
 
