@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 def get_bluestacks_path(
     key_name: str = constants.REGISTRY_DATA_DIR_KEY,
 ) -> Optional[str]:
-    """
+    r"""
     Retrieves a specific registry string value from the BlueStacks or MSI App
     Player registry keys.
 
@@ -20,8 +20,9 @@ def get_bluestacks_path(
     ``HKEY_LOCAL_MACHINE\SOFTWARE\BlueStacks_msi5`` if not found.
 
     Args:
-        key_name: The registry value name to retrieve (e.g., "DataDir",
-            "UserDefinedDir"). Defaults to ``constants.REGISTRY_DATA_DIR_KEY``.
+        key_name: The registry value name to retrieve (e.g., ``DataDir`` or
+            ``UserDefinedDir``). Defaults to
+            ``constants.REGISTRY_DATA_DIR_KEY``.
 
     Returns:
         The string value of the registry key if found and of type ``REG_SZ``.
