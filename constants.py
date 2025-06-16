@@ -1,4 +1,4 @@
-# constants.py
+"""Application constants."""
 import re
 
 INSTANCE_PREFIX = "bst.instance."
