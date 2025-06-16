@@ -58,6 +58,6 @@ PROCESS_KILL_TIMEOUT_S = 5
 PROCESS_POST_KILL_WAIT_S = 2
 
 
-APP_ID = "RobThePCGuy.BlueStacksRootGUI.2.2"
+APP_ID = "RobThePCGuy.BlueStacksRootGUI.2.5"
 APP_NAME = "BlueStacks Root GUI"
 ICON_FILENAME = "favicon.ico"
