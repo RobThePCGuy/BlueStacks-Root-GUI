@@ -2,7 +2,7 @@
 import sys
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -296,6 +296,7 @@ class BluestacksRootToggle(QWidget):
         super().__init__()
         self.translation_manager = TranslationManager()
         self.bluestacks_data_path: Optional[str] = None
+        self.bluestacks_data_paths: List[str] = []
         self.bluestacks_user_path: Optional[str] = None
         self.config_path: Optional[str] = None
         self.instance_data: Dict[str, Dict[str, Any]] = {}
@@ -312,7 +313,9 @@ class BluestacksRootToggle(QWidget):
         self._set_icon()
 
         self.status_refresh_timer = QTimer(self)
-        self.status_refresh_timer.timeout.connect(self.update_instance_statuses)
+        self.status_refresh_timer.timeout.connect(
+            lambda: self.update_instance_statuses(preserve_selection=True)
+        )
 
         self.init_ui()
         QTimer.singleShot(0, self.initialize_paths_and_instances)
@@ -485,11 +488,10 @@ class BluestacksRootToggle(QWidget):
             self.bluestacks_user_path, constants.BLUESTACKS_CONF_FILENAME
         )
         logger.info(f"Config path determined: {self.config_path}")
-
-        self.bluestacks_data_path = registry_handler.get_bluestacks_path(
+        self.bluestacks_data_paths = registry_handler.get_all_bluestacks_paths(
             constants.REGISTRY_DATA_DIR_KEY
         )
-        if not self.bluestacks_data_path:
+        if not self.bluestacks_data_paths:
             error_message = self.translation_manager.get_translation(
                 "BlueStacks DataDir registry key not found."
             )
@@ -500,18 +502,21 @@ class BluestacksRootToggle(QWidget):
             self.status_label.setText(error_message)
             logger.error(error_message)
             self.bluestacks_data_path = None
+            self.bluestacks_data_paths = []
             self.status_refresh_timer.stop()
             return
 
+        self.bluestacks_data_path = self.bluestacks_data_paths[0]
+        display_data_paths = ", ".join(self.bluestacks_data_paths)
         self.path_label.setText(
             f"User Path: {self.bluestacks_user_path}\n"
-            f"Data Path: {self.bluestacks_data_path}"
+            f"Data Path: {display_data_paths}"
         )
         logger.info(f"BlueStacks User path: {self.bluestacks_user_path}")
-        logger.info(f"BlueStacks Data path: {self.bluestacks_data_path}")
+        logger.info(f"BlueStacks Data paths: {display_data_paths}")
 
         self.update_instance_data()
-        self.update_instance_checkboxes()
+        self.update_instance_checkboxes(preserve_selection=False)
 
         self.status_label.setText(self.translation_manager.get_translation("Ready"))
 
@@ -529,8 +534,8 @@ class BluestacksRootToggle(QWidget):
         if not self.config_path:
             logger.error("Config path is not set. Cannot update instance data.")
             return
-        if not self.bluestacks_data_path:
-            logger.error("BlueStacks data path is not set. Cannot update R/W status.")
+        if not self.bluestacks_data_paths:
+            logger.error("BlueStacks data paths are not set. Cannot update R/W status.")
             return
 
         logger.debug("Updating internal instance data cache...")
@@ -570,7 +575,7 @@ class BluestacksRootToggle(QWidget):
         if config_file_exists and not config_read_error:
             self._config_missing_logged = False
 
-        instance_names = list(conf_data.keys())
+        instance_names = set(conf_data.keys())
         if not instance_names and config_file_exists and not config_read_error:
             logger.info(
                 f"No instances found in {self.config_path}. If instances exist, check the config file."
@@ -578,12 +583,22 @@ class BluestacksRootToggle(QWidget):
         elif not instance_names and not config_file_exists:
             logger.info("Config file missing, cannot determine instances.")
 
-        for instance_name in instance_names:
-            is_root_enabled = conf_data[instance_name]
-            rw_mode = constants.MODE_UNKNOWN
-            instance_dir_path = os.path.join(self.bluestacks_data_path, instance_name)
+        instance_dir_map: Dict[str, str] = {}
+        for data_path in self.bluestacks_data_paths:
+            if not os.path.isdir(data_path):
+                continue
+            for entry in os.listdir(data_path):
+                full_path = os.path.join(data_path, entry)
+                if os.path.isdir(full_path):
+                    instance_names.add(entry)
+                    instance_dir_map.setdefault(entry, full_path)
 
-            if not os.path.isdir(instance_dir_path):
+        for instance_name in sorted(instance_names):
+            is_root_enabled = conf_data.get(instance_name)
+            rw_mode = constants.MODE_UNKNOWN
+            instance_dir_path = instance_dir_map.get(instance_name)
+
+            if not instance_dir_path or not os.path.isdir(instance_dir_path):
                 logger.warning(
                     f"Instance directory not found for R/W check: {instance_dir_path}. Setting R/W status to Unknown."
                 )
@@ -610,6 +625,7 @@ class BluestacksRootToggle(QWidget):
             new_data[instance_name] = {
                 "root_enabled": is_root_enabled,
                 "rw_mode": rw_mode,
+                "data_path": instance_dir_path,
             }
             logger.debug(
                 f"Instance '{instance_name}': Root={is_root_enabled}, R/W Mode='{rw_mode}'"
@@ -642,12 +658,17 @@ class BluestacksRootToggle(QWidget):
                                 inner_widget.deleteLater()
         self.instance_checkboxes = {}
 
-    def update_instance_checkboxes(self) -> None:
+    def update_instance_checkboxes(self, preserve_selection: bool = True) -> None:
         """
         Clears and rebuilds the instance grid UI based on current instance_data.
         Ensures column alignment using QGridLayout.
         """
         logger.debug("Rebuilding instance checkboxes UI grid...")
+        previous_selection = set()
+        if preserve_selection:
+            for name, widgets in self.instance_checkboxes.items():
+                if widgets["checkbox"].isChecked():
+                    previous_selection.add(name)
         self._clear_instance_widgets()
 
         if not self.instance_data:
@@ -658,7 +679,7 @@ class BluestacksRootToggle(QWidget):
         row = 0
         for name in sorted(list(self.instance_data.keys())):
             checkbox = QCheckBox(name)
-            checkbox.setChecked(False)
+            checkbox.setChecked(name in previous_selection)
 
             root_status_label = QLabel("Root: ...")
             rw_status_label = QLabel("R/W: ...")
@@ -786,7 +807,9 @@ class BluestacksRootToggle(QWidget):
         self.status_label.setText(final_message)
         self.status_label.setStyleSheet("")
         self._cleanup_after_operation()
-        QTimer.singleShot(500, self.update_instance_statuses)
+        QTimer.singleShot(
+            500, lambda: self.update_instance_statuses(preserve_selection=False)
+        )
 
     @pyqtSlot(str)
     def on_worker_critical_error(self, error_message: str) -> None:
@@ -913,11 +936,13 @@ class BluestacksRootToggle(QWidget):
             raise Exception(f"Failed to modify config for {name}: {e}") from e
 
     def _toggle_single_instance_rw(self, name: str) -> None:
-        if not self.worker or not self.bluestacks_data_path:
+        if not self.worker or not self.bluestacks_data_paths:
             raise Exception("Worker or BlueStacks data path not available.")
         if name not in self.instance_data:
             raise Exception(f"Instance data missing for {name}.")
-        instance_dir_path = os.path.join(self.bluestacks_data_path, name)
+        instance_dir_path = self.instance_data[name].get("data_path")
+        if not instance_dir_path:
+            instance_dir_path = os.path.join(self.bluestacks_data_path, name)
         if not os.path.isdir(instance_dir_path):
             raise FileNotFoundError(
                 f"Instance directory not found: {instance_dir_path}"
@@ -1096,7 +1121,7 @@ class BluestacksRootToggle(QWidget):
             self.status_label.setText(message_text)
             self.status_label.setStyleSheet("")
 
-    def update_instance_statuses(self) -> None:
+    def update_instance_statuses(self, preserve_selection: bool = True) -> None:
         if self.is_toggling:
             logger.debug(
                 "Skipping periodic status update while an operation is in progress."
@@ -1104,7 +1129,7 @@ class BluestacksRootToggle(QWidget):
             return
         logger.debug("Performing periodic status update...")
         self.update_instance_data()
-        self.update_instance_checkboxes()
+        self.update_instance_checkboxes(preserve_selection=preserve_selection)
 
         logger.debug("Periodic status update complete.")
 
