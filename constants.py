@@ -8,6 +8,7 @@ BLUESTACKS_CONF_FILENAME = "bluestacks.conf"
 
 
 REGISTRY_BASE_PATH = r"SOFTWARE\BlueStacks_nxt"
+REGISTRY_MSI_BASE_PATH = r"SOFTWARE\BlueStacks_msi5"
 REGISTRY_DATA_DIR_KEY = "DataDir"
 REGISTRY_USER_DIR_KEY = "UserDefinedDir"
 
