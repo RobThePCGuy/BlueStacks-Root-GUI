@@ -1,7 +1,7 @@
 """Helper functions for accessing the Windows registry."""
 import winreg
 import logging
-from typing import Optional
+from typing import Optional, List
 
 
 import constants
@@ -84,3 +84,63 @@ def get_bluestacks_path(
             return None
 
     return value
+
+
+def get_all_bluestacks_paths(
+    key_name: str = constants.REGISTRY_DATA_DIR_KEY,
+) -> List[str]:
+    """Returns a list of paths for both BlueStacks registry locations."""
+
+    paths: List[str] = []
+    for reg_path in (constants.REGISTRY_BASE_PATH, constants.REGISTRY_MSI_BASE_PATH):
+        full_reg_path_log = f"HKEY_LOCAL_MACHINE\\{reg_path}"
+        try:
+            logger.debug(f"Attempting to open registry key: {full_reg_path_log}")
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE, reg_path, 0, winreg.KEY_READ
+            ) as key:
+                logger.debug(
+                    f"Successfully opened registry key. Querying value for '{key_name}'."
+                )
+                reg_value, reg_type = winreg.QueryValueEx(key, key_name)
+                if reg_type == winreg.REG_SZ:
+                    value = str(reg_value)
+                    logger.info(
+                        f"Found registry key '{key_name}' with value: {value}"
+                    )
+                    paths.append(value)
+                else:
+                    logger.warning(
+                        f"Registry key '{key_name}' found but is not a string (Type: {reg_type}). Value: {reg_value}"
+                    )
+        except FileNotFoundError:
+            logger.debug(
+                f"Registry path {full_reg_path_log} or value '{key_name}' not found."
+            )
+            continue
+        except PermissionError:
+            logger.error(
+                f"Permission denied accessing registry value '{key_name}' at {full_reg_path_log}. Try running as administrator."
+            )
+            continue
+        except OSError as e:
+            if e.winerror == 5:
+                logger.error(
+                    f"Permission denied accessing registry value '{key_name}' at {full_reg_path_log} (OSError: {e}). Try running as administrator."
+                )
+            elif e.winerror == 2:
+                logger.debug(
+                    f"Registry path {full_reg_path_log} or value name '{key_name}' not found (OSError: {e})."
+                )
+                continue
+            else:
+                logger.error(
+                    f"OS error accessing registry value '{key_name}' at {full_reg_path_log}: {e}"
+                )
+            continue
+        except Exception as e:
+            logger.exception(
+                f"An unexpected error occurred accessing registry value '{key_name}' at {full_reg_path_log}: {e}"
+            )
+            continue
+    return paths
