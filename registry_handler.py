@@ -1,4 +1,4 @@
-# registry_handler.py
+"""Helper functions for accessing the Windows registry."""
 import winreg
 import logging
 from typing import Optional

@@ -1,4 +1,4 @@
-# instance_handler.py
+"""Operations related to BlueStacks instances."""
 import os
 import glob
 import logging
