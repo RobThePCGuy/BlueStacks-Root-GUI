@@ -756,41 +756,6 @@ class BluestacksRootToggle(QWidget):
             logger.exception(error_message)
             raise Exception(error_message) from e
 
-    def _toggle_single_instance_root(self, unique_id: str) -> None:
-        """Toggles root for a single, uniquely identified instance."""
-        if not self.worker:
-            raise Exception("Worker not available.")
-        
-        instance = self.instance_data.get(unique_id)
-        if not instance:
-            raise Exception(f"Instance data missing for {unique_id}.")
-            
-        config_path = instance["config_path"]
-        original_name = instance["original_name"]
-        if not os.path.isfile(config_path):
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-
-        current_state = instance.get("root_enabled", False)
-        new_state_val = "0" if current_state else "1"
-        new_state_bool = not current_state
-        on_off_text = (
-            self.translation_manager.get_translation("On")
-            if new_state_bool
-            else self.translation_manager.get_translation("Off")
-        )
-        
-        try:
-            setting_key = f"{constants.INSTANCE_PREFIX}{original_name}{constants.ENABLE_ROOT_KEY}"
-            config_handler.modify_config_file(config_path, setting_key, new_state_val)
-            config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, new_state_val)
-            
-            self.instance_data[unique_id]["root_enabled"] = new_state_bool
-            self.worker.instance_status_updated.emit(unique_id, "root", on_off_text)
-            logger.info(f"Root toggled for instance: {unique_id} to {on_off_text}")
-        except Exception as e:
-            logger.exception(f"Failed to toggle root for instance {unique_id}")
-            raise Exception(f"Failed to modify config for {unique_id}: {e}") from e
-
     def _toggle_single_instance_rw(self, unique_id: str) -> None:
         """Toggles R/W for a single, uniquely identified instance."""
         if not self.worker:
@@ -836,6 +801,11 @@ class BluestacksRootToggle(QWidget):
             raise Exception(f"Failed to modify instance files for {unique_id}: {e}") from e
 
     def _perform_root_toggle_operation(self) -> None:
+        """
+        FIXED: This operation toggles root for selected instances and then sets the
+        global root flag based on the final state of ALL instances per config file.
+        This prevents toggling one instance from breaking others.
+        """
         if not self.worker:
             return
         try:
@@ -843,34 +813,73 @@ class BluestacksRootToggle(QWidget):
         except Exception as e:
             self.worker.error.emit(str(e))
             return
-        
-        selected_ids = [
-            uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()
-        ]
-        
+
+        selected_ids = {uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()}
+        if not selected_ids:
+            return
+
+        # Show reminder if the user is turning root ON for any instance
         show_reminder = any(
             not self.instance_data.get(uid, {}).get("root_enabled", False)
             for uid in selected_ids
         )
         if show_reminder:
             self.worker.operation_message.emit("reminder", "show_magisk_reminder")
-        
-        for unique_id in selected_ids:
-            self.worker.operation_message.emit(
-                "info",
-                self.translation_manager.get_translation(
-                    "Toggling Root for {}..."
-                ).format(unique_id),
-            )
+
+        # Group all instances by their config file path to process them in batches
+        configs_map: Dict[str, List[Dict[str, Any]]] = {}
+        for instance in self.instance_data.values():
+            path = instance["config_path"]
+            if path not in configs_map:
+                configs_map[path] = []
+            configs_map[path].append(instance)
+
+        # --- Main Logic ---
+        for config_path, instances_in_config in configs_map.items():
+            # Check if this config file is affected by the user's selection
+            if not any(inst["unique_id"] in selected_ids for inst in instances_in_config):
+                continue  # Skip this config file if no instances in it were selected
+
             try:
-                self._toggle_single_instance_root(unique_id)
+                # 1. Toggle the individual root flags for selected instances
+                for instance in instances_in_config:
+                    unique_id = instance["unique_id"]
+                    if unique_id not in selected_ids:
+                        continue  # Only toggle selected instances
+
+                    self.worker.operation_message.emit(
+                        "info",
+                        self.translation_manager.get_translation("Toggling Root for {}...").format(unique_id)
+                    )
+                    
+                    original_name = instance["original_name"]
+                    current_state = instance.get("root_enabled", False)
+                    new_state_bool = not current_state
+                    new_state_val = "1" if new_state_bool else "0"
+                    
+                    setting_key = f"{constants.INSTANCE_PREFIX}{original_name}{constants.ENABLE_ROOT_KEY}"
+                    config_handler.modify_config_file(config_path, setting_key, new_state_val)
+
+                    # Update internal state so the next step is accurate
+                    instance["root_enabled"] = new_state_bool
+                    
+                    # Emit UI update signal
+                    on_off_text = self.translation_manager.get_translation("On") if new_state_bool else self.translation_manager.get_translation("Off")
+                    self.worker.instance_status_updated.emit(unique_id, "root", on_off_text)
+
+                # 2. Determine the new state for the global root flag
+                is_any_root_on = any(inst.get("root_enabled", False) for inst in instances_in_config)
+                new_global_value = "1" if is_any_root_on else "0"
+
+                logger.info(f"Setting global '{constants.FEATURE_ROOTING_KEY}' to '{new_global_value}' in {config_path}")
+                config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, new_global_value)
+
             except Exception as e:
-                error_msg = self.translation_manager.get_translation(
-                    "Error toggling root for {}: {}"
-                ).format(unique_id, e)
+                # Report a general error for this config file
+                error_msg = f"Error processing {os.path.basename(config_path)}: {e}"
                 self.worker.operation_message.emit("error", error_msg)
                 self.operation_had_errors = True
-
+                
     def _perform_rw_toggle_operation(self) -> None:
         if not self.worker:
             return
