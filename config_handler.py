@@ -1,4 +1,4 @@
-# config_handler.py
+"""Configuration file handling utilities."""
 import os
 import logging
 import re

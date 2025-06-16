@@ -1,4 +1,4 @@
-# main.py
+"""Qt5-based GUI application for toggling BlueStacks root access."""
 import sys
 import os
 import logging
@@ -555,10 +555,7 @@ class BluestacksRootToggle(QWidget):
                     ).format(e)
                 )
         else:
-            if (
-                not hasattr(self, "_config_missing_logged")
-                or not self._config_missing_logged
-            ):
+            if not self._config_missing_logged:
                 logger.error(
                     f"Config file missing: {self.config_path}. Cannot read root statuses."
                 )
