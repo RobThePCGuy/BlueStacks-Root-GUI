@@ -304,6 +304,7 @@ class BluestacksRootToggle(QWidget):
         self.background_thread: Optional[QThread] = None
         self.worker: Optional[Worker] = None
         self.operation_had_errors: bool = False
+        self._config_missing_logged: bool = False
 
         self.setWindowTitle(
             self.translation_manager.get_translation(constants.APP_NAME)
