@@ -1,2 +1,6 @@
-__pycache__/
-venv/
+/__pycache__/
+/venv/
+BlueStacksRootGUI.spec
+/dist/
+/build/
+/.venv/
