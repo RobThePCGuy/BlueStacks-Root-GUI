@@ -1,6 +1,6 @@
 /__pycache__/
 /venv/
-BlueStacksRootGUI.spec
+BlueStacksRootGUI*.spec
 /dist/
 /build/
 /.venv/
