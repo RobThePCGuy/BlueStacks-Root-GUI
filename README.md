@@ -6,7 +6,7 @@
 
 ![GUI Screenshot](https://github.com/user-attachments/assets/10f965eb-e1cc-4d61-9b6f-0cbb484a4ef0)
 
-BlueStacks Root GUI is a utility designed to easily toggle root access settings and enable read/write (R/W) permissions for your BlueStacks 5 instances (specifically targeting BlueStacks_nxt structure). It aims to simplify the process described in the original guide: **[Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)** by providing a graphical interface.
+BlueStacks Root GUI is a utility designed to easily toggle root access settings and enable read/write (R/W) permissions for your BlueStacks 5 instances (specifically targeting the `BlueStacks_nxt` structure and the MSI App Player's `BlueStacks_msi5`). It aims to simplify the process described in the original guide: **[Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)** by providing a graphical interface.
 
 ---
 
@@ -26,7 +26,7 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 
 ## Features
 
-- **Auto-Detection:** Discovers BlueStacks installation paths via the Windows Registry (`SOFTWARE\BlueStacks_nxt`).
+- **Auto-Detection:** Discovers BlueStacks installation paths via the Windows Registry (`SOFTWARE\BlueStacks_nxt` or `SOFTWARE\BlueStacks_msi5`).
 - **Instance Listing:** Reads `bluestacks.conf` to find and list configured instances.
 - **Root Toggle:** Modifies `bst.instance.<name>.enable_root_access` and `bst.feature.rooting` in `bluestacks.conf`.
 - **Read/Write Toggle:** Modifies the `Type` attribute (`Normal` vs `Readonly`) for key disk files (`fastboot.vdi`, `Root.vhd`) within instance-specific `.bstk` files.
@@ -38,7 +38,7 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 ## Prerequisites
 
 - **Operating System:** Windows 10 or later (due to registry keys and file paths used).
-- **BlueStacks Version:** BlueStacks 5 (specifically versions using the `BlueStacks_nxt` registry key and configuration structure). *Compatibility with other versions is not guaranteed.*
+- **BlueStacks Version:** BlueStacks 5 or MSI App Player (versions using the `BlueStacks_nxt` or `BlueStacks_msi5` registry keys and configuration structure). *Compatibility with other versions is not guaranteed.*
 - **Python (for development):** Python 3.7+
 - **Administrator Rights:** **Required** to read the HKLM registry and terminate BlueStacks processes effectively. Run the application as an administrator.
 - **Dependencies:** Listed in `requirements.txt`. Key dependencies include `PyQt5`, `pywin32`, `psutil`.
@@ -115,7 +115,7 @@ BlueStacks Root GUI is a utility designed to easily toggle root access settings 
 
 -   **"Path Not Found" / No Instances Listed:**
     *   Ensure you ran the GUI as **administrator**.
-    *   Verify BlueStacks 5 is installed correctly and the registry keys (`HKLM\SOFTWARE\BlueStacks_nxt\UserDefinedDir` and `DataDir`) exist.
+     *   Verify BlueStacks 5 or MSI App Player is installed correctly and the registry keys (`HKLM\SOFTWARE\BlueStacks_nxt\UserDefinedDir` and `DataDir` or `HKLM\SOFTWARE\BlueStacks_msi5`) exist.
     *   A clean reinstall of BlueStacks using the official cleaner tool might be necessary.
 -   **Permission Errors during Toggle:**
     *   You *must* run the GUI as administrator.
