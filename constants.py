@@ -12,6 +12,10 @@ REGISTRY_MSI_BASE_PATH = r"SOFTWARE\BlueStacks_msi5"
 REGISTRY_DATA_DIR_KEY = "DataDir"
 REGISTRY_USER_DIR_KEY = "UserDefinedDir"
 
+# FIX: Add constants to identify the source application
+APP_SOURCE_NXT = "NXT"
+APP_SOURCE_MSI = "MSI"
+
 
 MODE_READWRITE = "Normal"
 MODE_READONLY = "Readonly"
@@ -54,6 +58,6 @@ PROCESS_KILL_TIMEOUT_S = 5
 PROCESS_POST_KILL_WAIT_S = 2
 
 
-APP_ID = "RobThePCGuy.BlueStacksRootGUI.2.1"
+APP_ID = "RobThePCGuy.BlueStacksRootGUI.2.2"
 APP_NAME = "BlueStacks Root GUI"
 ICON_FILENAME = "favicon.ico"

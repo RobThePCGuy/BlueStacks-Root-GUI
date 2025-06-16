@@ -2,7 +2,6 @@
 import sys
 import os
 import logging
-import glob
 from typing import Dict, Any, Optional, List
 
 from PyQt5.QtWidgets import (
@@ -99,6 +98,7 @@ class TranslationManager:
                 "BlueStacks Path: Loading...": "BlueStacks Path: Loading...",
                 "BlueStacks Path: Not Found": "BlueStacks Path: Not Found",
                 "BlueStacks Path: {}": "BlueStacks Path: {}",
+                "Installations Found:": "Installations Found:",
                 "Instances": "Instances",
                 "Toggle Root": "Toggle Root",
                 "Toggle R/W": "Toggle R/W",
@@ -116,12 +116,7 @@ class TranslationManager:
                 "Error reading config: {}": "Error reading config: {}",
                 "Root: {}": "Root: {}",
                 "R/W: {}": "R/W: {}",
-                "BlueStacks UserDefinedDir registry key not found.": (
-                    "BlueStacks UserDefinedDir registry key not found."
-                ),
-                "BlueStacks DataDir registry key not found.": (
-                    "BlueStacks DataDir registry key not found."
-                ),
+                "No BlueStacks installations found.": "No BlueStacks installations found.",
                 "Error: bluestacks.conf not found. Cannot toggle root.": (
                     "Error: bluestacks.conf not found. Cannot toggle root."
                 ),
@@ -132,14 +127,17 @@ class TranslationManager:
                     "Root toggled for instance: {} to {}"
                 ),
                 "Error toggling root for {}: {}": "Error toggling root for {}: {}",
-                "Error: BlueStacks path not found. Cannot toggle R/W.": (
-                    "Error: BlueStacks path not found. Cannot toggle R/W."
+                "Error: BlueStacks data path not found for instance. Cannot toggle R/W.": (
+                    "Error: BlueStacks data path not found for instance. Cannot toggle R/W."
+                ),
+                "Error: Instance path for '{}' not found. Cannot toggle R/W.": (
+                    "Error: Instance path for '{}' not found. Cannot toggle R/W."
                 ),
                 "No instances selected to toggle R/W.": (
                     "No instances selected to toggle R/W."
                 ),
-                "R/W toggled for instance: {} to {} ({})": (
-                    "R/W toggled for instance: {} to {} ({})"
+                "R/W toggled for instance: {} to {}": (
+                    "R/W toggled for instance: {} to {}"
                 ),
                 "Error toggling R/W for {}: {}": "Error toggling R/W for {}: {}",
                 "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.": (
@@ -188,6 +186,7 @@ class TranslationManager:
                 "BlueStacks Path: Loading...": "BlueStacks パス: 読み込み中...",
                 "BlueStacks Path: Not Found": "BlueStacks パス: 見つかりません",
                 "BlueStacks Path: {}": "BlueStacks パス: {}",
+                "Installations Found:": "見つかったインストール:",
                 "Instances": "インスタンス",
                 "Toggle Root": "ルート切り替え",
                 "Toggle R/W": "R/W切り替え",
@@ -205,12 +204,7 @@ class TranslationManager:
                 "Error reading config: {}": "エラー：設定ファイルの読み込みエラー：{}",
                 "Root: {}": "ルート: {}",
                 "R/W: {}": "R/W: {}",
-                "BlueStacks UserDefinedDir registry key not found.": (
-                    "BlueStacks UserDefinedDir レジストリキーが見つかりません。"
-                ),
-                "BlueStacks DataDir registry key not found.": (
-                    "BlueStacks DataDir レジストリキーが見つかりません。"
-                ),
+                "No BlueStacks installations found.": "BlueStacksのインストールが見つかりません。",
                 "Error: bluestacks.conf not found. Cannot toggle root.": (
                     "エラー：bluestacks.conf が見つかりません。ルートを切り替えられません。"
                 ),
@@ -221,14 +215,17 @@ class TranslationManager:
                     "インスタンス {} のルートを {} に切り替えました"
                 ),
                 "Error toggling root for {}: {}": "{} のルート切り替えエラー：{}",
-                "Error: BlueStacks path not found. Cannot toggle R/W.": (
-                    "エラー：BlueStacks パスが見つかりません。R/Wを切り替えられません。"
+                "Error: BlueStacks data path not found for instance. Cannot toggle R/W.": (
+                    "エラー：インスタンスのBlueStacksデータパスが見つかりません。R/Wを切り替えられません。"
+                ),
+                "Error: Instance path for '{}' not found. Cannot toggle R/W.": (
+                    "エラー: インスタンス '{}' のパスが見つかりません。R/W を切り替えられません。"
                 ),
                 "No instances selected to toggle R/W.": (
                     "R/W を切り替えるインスタンスが選択されていません。"
                 ),
-                "R/W toggled for instance: {} to {} ({})": (
-                    "インスタンス {} の R/W を {} ({}) に切り替えました"
+                "R/W toggled for instance: {} to {}": (
+                    "インスタンス {} の R/W を {} に切り替えました"
                 ),
                 "Error toggling R/W for {}: {}": "{} の R/W 切り替えエラー：{}",
                 "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync.": (
@@ -296,13 +293,7 @@ class BluestacksRootToggle(QWidget):
         """Initializes the application window, UI components, and timer."""
         super().__init__()
         self.translation_manager = TranslationManager()
-        self.bluestacks_data_path: Optional[str] = None
-        self.bluestacks_data_paths: List[str] = []
-        self.bluestacks_user_path: Optional[str] = None
-        self.bluestacks_user_paths: List[str] = []
-        self.config_path: Optional[str] = None
-        self.config_paths: Dict[str, str] = {}
-        self.data_path_to_config_key: Dict[str, str] = {}
+        self.installations: List[registry_handler.Installation] = []
         self.instance_data: Dict[str, Dict[str, Any]] = {}
         self.instance_checkboxes: Dict[str, Dict[str, Any]] = {}
         self.is_toggling: bool = False
@@ -371,10 +362,10 @@ class BluestacksRootToggle(QWidget):
         )
 
         self.instance_layout = QGridLayout()
-        self.instance_layout.setColumnStretch(0, 2)
-        self.instance_layout.setColumnStretch(1, 1)
-        self.instance_layout.setColumnStretch(2, 1)
-        self.instance_layout.setColumnStretch(3, 0)
+        # FIX: Adjust column stretch to give more room for the instance name
+        self.instance_layout.setColumnStretch(0, 4) # Checkbox name
+        self.instance_layout.setColumnStretch(1, 1) # Root status
+        self.instance_layout.setColumnStretch(2, 1) # R/W status
         self.instance_layout.setHorizontalSpacing(15)
         self.instance_layout.setVerticalSpacing(5)
         self.instance_group.setLayout(self.instance_layout)
@@ -413,7 +404,8 @@ class BluestacksRootToggle(QWidget):
         main_layout.addStretch(1)
 
         self.setLayout(main_layout)
-        self.setMinimumWidth(450)
+        # FIX: Increase minimum width to prevent truncation
+        self.setMinimumWidth(550)
 
     def change_language(self, index: int) -> None:
         """Handles language change from the ComboBox."""
@@ -452,13 +444,12 @@ class BluestacksRootToggle(QWidget):
                 )
         except AttributeError:
             logger.warning("Could not find language label to update text.")
-
-        self.update_instance_checkboxes_text()
+        # FIX: No longer need to call update_instance_checkboxes_text as it's merged
+        self.update_instance_checkboxes(preserve_selection=True)
 
     def initialize_paths_and_instances(self) -> None:
         """
-        Fetches BlueStacks paths from registry, updates instance data, and populates the UI.
-        Starts the status refresh timer on success.
+        Fetches all BlueStacks installations from registry, updates instance data, and populates the UI.
         """
         logger.info("Initializing BlueStacks paths and instances...")
         self.status_label.setText(
@@ -467,69 +458,25 @@ class BluestacksRootToggle(QWidget):
         QApplication.processEvents()
 
         self._clear_instance_widgets()
-
         self.instance_data = {}
         self.instance_checkboxes = {}
 
-        self.bluestacks_user_paths = registry_handler.get_all_bluestacks_paths(
-            constants.REGISTRY_USER_DIR_KEY
-        )
-        if not self.bluestacks_user_paths:
+        self.installations = registry_handler.get_all_bluestacks_installations()
+
+        if not self.installations:
             error_message = self.translation_manager.get_translation(
-                "BlueStacks UserDefinedDir registry key not found."
+                "No BlueStacks installations found."
             )
-            self.path_label.setText(
-                self.translation_manager.get_translation("BlueStacks Path: Not Found")
-            )
+            self.path_label.setText(error_message)
             self.status_label.setText(error_message)
             logger.error(error_message)
-            self.config_paths = {}
-            self.config_path = None
-            self.bluestacks_data_path = None
             self.status_refresh_timer.stop()
             return
 
-        self.config_paths = {}
-        for upath in self.bluestacks_user_paths:
-            key = "msi" if "msi5" in upath.lower() else "nxt" if "nxt" in upath.lower() else f"cfg{len(self.config_paths)}"
-            self.config_paths[key] = os.path.join(upath, constants.BLUESTACKS_CONF_FILENAME)
-
-        self.bluestacks_user_path = self.bluestacks_user_paths[0]
-        self.config_path = self.config_paths[next(iter(self.config_paths))]
-        logger.info(f"Config paths determined: {self.config_paths}")
-        self.bluestacks_data_paths = registry_handler.get_all_bluestacks_paths(
-            constants.REGISTRY_DATA_DIR_KEY
-        )
-        if not self.bluestacks_data_paths:
-            error_message = self.translation_manager.get_translation(
-                "BlueStacks DataDir registry key not found."
-            )
-            self.path_label.setText(
-                f"User Path: {self.bluestacks_user_path}\n"
-                f"Data Path: {self.translation_manager.get_translation('BlueStacks Path: Not Found')}"
-            )
-            self.status_label.setText(error_message)
-            logger.error(error_message)
-            self.bluestacks_data_path = None
-            self.bluestacks_data_paths = []
-            self.status_refresh_timer.stop()
-            return
-
-        self.data_path_to_config_key = {}
-        for dp in self.bluestacks_data_paths:
-            key = "msi" if "msi5" in dp.lower() else "nxt" if "nxt" in dp.lower() else None
-            if key:
-                self.data_path_to_config_key[dp] = key
-
-        self.bluestacks_data_path = self.bluestacks_data_paths[0]
-        display_data_paths = ", ".join(self.bluestacks_data_paths)
-        display_user_paths = ", ".join(self.bluestacks_user_paths)
-        self.path_label.setText(
-            f"User Path: {display_user_paths}\n"
-            f"Data Path: {display_data_paths}"
-        )
-        logger.info(f"BlueStacks User paths: {display_user_paths}")
-        logger.info(f"BlueStacks Data paths: {display_data_paths}")
+        path_details = [self.translation_manager.get_translation("Installations Found:")]
+        for inst in self.installations:
+            path_details.append(f"  - {inst['source']}: {inst['user_path']}")
+        self.path_label.setText("\n".join(path_details))
 
         self.update_instance_data()
         self.update_instance_checkboxes(preserve_selection=False)
@@ -537,145 +484,73 @@ class BluestacksRootToggle(QWidget):
         self.status_label.setText(self.translation_manager.get_translation("Ready"))
 
         if not self.status_refresh_timer.isActive():
-            logger.info(
-                f"Starting status refresh timer ({constants.REFRESH_INTERVAL_MS} ms)."
-            )
             self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def update_instance_data(self) -> None:
         """
-        Reads bluestacks.conf and instance R/W status to update internal data cache.
-        Handles potential errors during data retrieval.
+        Reads all bluestacks.conf files and instance R/W status, then filters for valid instances.
         """
-        if not self.config_paths:
-            logger.error("Config paths are not set. Cannot update instance data.")
-            return
-        if not self.bluestacks_data_paths:
-            logger.error("BlueStacks data paths are not set. Cannot update R/W status.")
+        if not self.installations:
             return
 
         logger.debug("Updating internal instance data cache...")
-        new_data: Dict[str, Dict[str, Any]] = {}
-        conf_entries: Dict[str, Dict[str, Any]] = {}
-
-        for key, cfg_path in self.config_paths.items():
-            cfg_exists = os.path.isfile(cfg_path)
-            if cfg_exists:
+        all_found_instances: Dict[str, Dict[str, Any]] = {}
+        for inst in self.installations:
+            source_id, config_path, data_path = inst["source"], inst["config_path"], inst["data_path"]
+            
+            root_statuses = {}
+            if os.path.isfile(config_path):
                 try:
-                    partial = config_handler.get_all_instance_root_statuses(cfg_path)
+                    root_statuses = config_handler.get_all_instance_root_statuses(config_path)
                 except Exception as e:
-                    logger.exception(
-                        f"Failed to read root statuses from {cfg_path}: {e}"
-                    )
-                    partial = {}
-                    self.status_label.setText(
-                        self.translation_manager.get_translation("Error reading config: {}" ).format(e)
-                    )
-                for inst, status in partial.items():
-                    conf_entries[inst] = {"enabled": status, "config_key": key}
+                    logger.error(f"Failed to read config {config_path}: {e}")
             else:
-                if not self._config_missing_logged:
-                    logger.error(
-                        f"Config file missing: {cfg_path}. Cannot read root statuses."
-                    )
-                    self.status_label.setText(
-                        self.translation_manager.get_translation("Config file not found: {}" ).format(os.path.basename(cfg_path))
-                    )
-                    self._config_missing_logged = True
+                 logger.warning(f"Config file not found for {source_id}: {config_path}")
 
-        if conf_entries:
-            self._config_missing_logged = False
+            disk_instances = {entry for entry in (os.listdir(data_path) if os.path.isdir(data_path) else []) if os.path.isdir(os.path.join(data_path, entry))}
+            all_instance_names = set(root_statuses.keys()) | disk_instances
 
-        instance_names = set(conf_entries.keys())
+            for name in sorted(all_instance_names):
+                unique_id = f"{name} ({source_id})"
+                instance_dir_path = os.path.join(data_path, name)
+                
+                rw_mode = constants.MODE_UNKNOWN
+                if os.path.isdir(instance_dir_path):
+                    try:
+                        is_readonly = instance_handler.is_instance_readonly(instance_dir_path)
+                        if is_readonly is True: rw_mode = constants.MODE_READONLY
+                        elif is_readonly is False: rw_mode = constants.MODE_READWRITE
+                    except Exception as e:
+                         logger.exception(f"Error checking R/W status for {unique_id}: {e}")
 
-        instance_dir_map: Dict[str, str] = {}
-        instance_cfg_key_map: Dict[str, str] = {}
-        for data_path in self.bluestacks_data_paths:
-            if not os.path.isdir(data_path):
-                continue
-            cfg_key = self.data_path_to_config_key.get(data_path)
-            for entry in os.listdir(data_path):
-                full_path = os.path.join(data_path, entry)
-                if not os.path.isdir(full_path):
-                    continue
-                android_bstk_in = os.path.join(full_path, constants.ANDROID_BSTK_IN_FILE)
-                bstk_files = glob.glob(os.path.join(full_path, constants.BSTK_FILE_PATTERN))
-                if os.path.exists(android_bstk_in) or bstk_files:
-                    instance_names.add(entry)
-                    instance_dir_map.setdefault(entry, full_path)
-                    if cfg_key:
-                        instance_cfg_key_map.setdefault(entry, cfg_key)
-                else:
-                    logger.debug(
-                        f"Skipping directory '{full_path}' as no .bstk files were found"
-                    )
-
-        for instance_name in sorted(instance_names):
-            conf_entry = conf_entries.get(instance_name, {})
-            is_root_enabled = conf_entry.get("enabled")
-            cfg_key = conf_entry.get("config_key", instance_cfg_key_map.get(instance_name))
-            rw_mode = constants.MODE_UNKNOWN
-            instance_dir_path = instance_dir_map.get(instance_name)
-
-            if not instance_dir_path or not os.path.isdir(instance_dir_path):
-                logger.warning(
-                    f"Instance directory not found for R/W check: {instance_dir_path}. Setting R/W status to Unknown."
-                )
-            else:
-                try:
-                    is_readonly_result = instance_handler.is_instance_readonly(
-                        instance_dir_path
-                    )
-                    if is_readonly_result is True:
-                        rw_mode = constants.MODE_READONLY
-                    elif is_readonly_result is False:
-                        rw_mode = constants.MODE_READWRITE
-                    else:
-                        rw_mode = constants.MODE_UNKNOWN
-                        logger.warning(
-                            f"Could not determine R/W status for instance '{instance_name}'. Setting to Unknown."
-                        )
-                except Exception as e:
-                    logger.exception(
-                        f"Error checking R/W status for instance '{instance_name}': {e}"
-                    )
-                    rw_mode = constants.MODE_UNKNOWN
-
-            new_data[instance_name] = {
-                "root_enabled": is_root_enabled,
-                "rw_mode": rw_mode,
-                "data_path": instance_dir_path,
-                "config_key": cfg_key,
-            }
-            logger.debug(
-                f"Instance '{instance_name}': Root={is_root_enabled}, R/W Mode='{rw_mode}'"
-            )
-
-        self.instance_data = new_data
-        logger.debug(
-            f"Instance data cache updated: {len(self.instance_data)} instances"
-        )
+                all_found_instances[unique_id] = {
+                    "unique_id": unique_id,
+                    "original_name": name,
+                    "source_app": source_id,
+                    "root_enabled": root_statuses.get(name),
+                    "rw_mode": rw_mode,
+                    "data_path": instance_dir_path,
+                    "config_path": config_path,
+                }
+        
+        # FIX: Filter out any instances with an unknown status before storing them
+        self.instance_data = {
+            uid: data for uid, data in all_found_instances.items()
+            if data["root_enabled"] is not None and data["rw_mode"] != constants.MODE_UNKNOWN
+        }
+        
+        omitted_count = len(all_found_instances) - len(self.instance_data)
+        if omitted_count > 0:
+            logger.info(f"Instance data updated. Displaying {len(self.instance_data)} instances, omitted {omitted_count} due to unknown/incomplete status.")
+        else:
+            logger.debug(f"Instance data cache updated: {len(self.instance_data)} unique instances")
 
     def _clear_instance_widgets(self):
         """Removes all widgets currently in the instance_layout grid."""
-        logger.debug("Clearing all instance UI widgets from grid layout.")
-
         while self.instance_layout.count():
             item = self.instance_layout.takeAt(0)
-            if item is not None:
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-                else:
-
-                    layout_to_clear = item.layout()
-                    if layout_to_clear is not None:
-
-                        while layout_to_clear.count():
-                            inner_item = layout_to_clear.takeAt(0)
-                            inner_widget = inner_item.widget()
-                            if inner_widget:
-                                inner_widget.deleteLater()
+            if item and item.widget():
+                item.widget().deleteLater()
         self.instance_checkboxes = {}
 
     def update_instance_checkboxes(self, preserve_selection: bool = True) -> None:
@@ -684,78 +559,42 @@ class BluestacksRootToggle(QWidget):
         Ensures column alignment using QGridLayout.
         """
         logger.debug("Rebuilding instance checkboxes UI grid...")
-        previous_selection = set()
-        if preserve_selection:
-            for name, widgets in self.instance_checkboxes.items():
-                if widgets["checkbox"].isChecked():
-                    previous_selection.add(name)
+        previous_selection = {
+            uid for uid, widgets in self.instance_checkboxes.items() if widgets["checkbox"].isChecked()
+        } if preserve_selection else set()
+        
         self._clear_instance_widgets()
 
         if not self.instance_data:
             logger.debug("No instance data found, grid will be empty.")
-
             return
 
-        row = 0
-        for name in sorted(list(self.instance_data.keys())):
-            checkbox = QCheckBox(name)
-            checkbox.setChecked(name in previous_selection)
+        # Get translated text once before the loop
+        on_text = self.translation_manager.get_translation("On")
+        off_text = self.translation_manager.get_translation("Off")
+        root_fmt = self.translation_manager.get_translation("Root: {}")
+        rw_fmt = self.translation_manager.get_translation("R/W: {}")
 
-            root_status_label = QLabel("Root: ...")
-            rw_status_label = QLabel("R/W: ...")
+        for row, unique_id in enumerate(sorted(self.instance_data.keys())):
+            data = self.instance_data[unique_id]
+            checkbox = QCheckBox(unique_id)
+            checkbox.setChecked(unique_id in previous_selection)
+            
+            # FIX: Determine status text immediately and create the labels
+            root_text = on_text if data["root_enabled"] else off_text
+            rw_text = on_text if data["rw_mode"] == constants.MODE_READWRITE else off_text
+            
+            root_status_label = QLabel(root_fmt.format(root_text))
+            rw_status_label = QLabel(rw_fmt.format(rw_text))
 
             self.instance_layout.addWidget(checkbox, row, 0)
             self.instance_layout.addWidget(root_status_label, row, 1)
             self.instance_layout.addWidget(rw_status_label, row, 2)
 
-            self.instance_checkboxes[name] = {
-                "checkbox": checkbox,
-                "root_status": root_status_label,
-                "rw_status": rw_status_label,
+            # Store all widgets for potential real-time updates by the worker
+            self.instance_checkboxes[unique_id] = {
+                "checkbox": checkbox, "root_status": root_status_label, "rw_status": rw_status_label
             }
-            row += 1
-
-        self.update_instance_checkboxes_text()
-
-    def update_instance_checkboxes_text(self) -> None:
-        """Updates the text of the status labels for all existing instance checkboxes."""
-        if not self.instance_checkboxes:
-            return
-
-        logger.debug("Updating instance checkbox status texts...")
-        on_text = self.translation_manager.get_translation("On")
-        off_text = self.translation_manager.get_translation("Off")
-        unknown_text = self.translation_manager.get_translation("Unknown")
-        root_fmt = self.translation_manager.get_translation("Root: {}")
-        rw_fmt = self.translation_manager.get_translation("R/W: {}")
-
-        for name, widgets in self.instance_checkboxes.items():
-            data = self.instance_data.get(name)
-            root_status_text = unknown_text
-            rw_status_text = unknown_text
-
-            if data:
-
-                root_status_val = data.get("root_enabled")
-                if root_status_val is True:
-                    root_status_text = on_text
-                elif root_status_val is False:
-                    root_status_text = off_text
-
-                rw_mode = data.get("rw_mode")
-                if rw_mode == constants.MODE_READWRITE:
-                    rw_status_text = on_text
-                elif rw_mode == constants.MODE_READONLY:
-                    rw_status_text = off_text
-            else:
-                logger.warning(
-                    self.translation_manager.get_translation(
-                        "Instance '{}' found in checkboxes but not in instance data. UI may be out of sync."
-                    ).format(name)
-                )
-
-            widgets["root_status"].setText(root_fmt.format(root_status_text))
-            widgets["rw_status"].setText(rw_fmt.format(rw_status_text))
 
     def _start_worker(self, operation_func, status_message_key: str) -> bool:
         if self.is_toggling:
@@ -828,7 +667,7 @@ class BluestacksRootToggle(QWidget):
         self.status_label.setStyleSheet("")
         self._cleanup_after_operation()
         QTimer.singleShot(
-            500, lambda: self.update_instance_statuses(preserve_selection=False)
+            500, lambda: self.update_instance_statuses(preserve_selection=True)
         )
 
     @pyqtSlot(str)
@@ -917,89 +756,84 @@ class BluestacksRootToggle(QWidget):
             logger.exception(error_message)
             raise Exception(error_message) from e
 
-    def _toggle_single_instance_root(self, name: str) -> None:
-        if not self.worker or not self.config_paths:
-            raise Exception("Worker or config path not available.")
-        if name not in self.instance_data:
-            raise Exception(f"Instance data missing for {name}.")
-        current_state = self.instance_data[name].get("root_enabled", False)
+    def _toggle_single_instance_root(self, unique_id: str) -> None:
+        """Toggles root for a single, uniquely identified instance."""
+        if not self.worker:
+            raise Exception("Worker not available.")
+        
+        instance = self.instance_data.get(unique_id)
+        if not instance:
+            raise Exception(f"Instance data missing for {unique_id}.")
+            
+        config_path = instance["config_path"]
+        original_name = instance["original_name"]
+        if not os.path.isfile(config_path):
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        current_state = instance.get("root_enabled", False)
         new_state_val = "0" if current_state else "1"
         new_state_bool = not current_state
-        new_state_text = (
+        on_off_text = (
             self.translation_manager.get_translation("On")
             if new_state_bool
             else self.translation_manager.get_translation("Off")
         )
+        
         try:
-            setting_key = (
-                f"{constants.INSTANCE_PREFIX}{name}{constants.ENABLE_ROOT_KEY}"
-            )
-            cfg_key = self.instance_data[name].get("config_key")
-            cfg_path = self.config_paths.get(cfg_key)
-            if not cfg_path:
-                raise Exception(f"Config path not found for instance {name}")
-
-            changed1 = config_handler.modify_config_file(
-                cfg_path, setting_key, new_state_val
-            )
-            changed2 = config_handler.modify_config_file(
-                cfg_path, constants.FEATURE_ROOTING_KEY, new_state_val
-            )
-            if not changed1 and not changed2:
-                logger.warning(
-                    f"Root toggle for '{name}': No changes made to config file."
-                )
-            self.instance_data[name]["root_enabled"] = new_state_bool
-            self.worker.instance_status_updated.emit(name, "root", new_state_text)
-            logger.info(
-                self.translation_manager.get_translation(
-                    "Root toggled for instance: {} to {}"
-                ).format(name, new_state_text)
-            )
+            setting_key = f"{constants.INSTANCE_PREFIX}{original_name}{constants.ENABLE_ROOT_KEY}"
+            config_handler.modify_config_file(config_path, setting_key, new_state_val)
+            config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, new_state_val)
+            
+            self.instance_data[unique_id]["root_enabled"] = new_state_bool
+            self.worker.instance_status_updated.emit(unique_id, "root", on_off_text)
+            logger.info(f"Root toggled for instance: {unique_id} to {on_off_text}")
         except Exception as e:
-            logger.exception(f"Failed to toggle root for instance {name}")
-            raise Exception(f"Failed to modify config for {name}: {e}") from e
+            logger.exception(f"Failed to toggle root for instance {unique_id}")
+            raise Exception(f"Failed to modify config for {unique_id}: {e}") from e
 
-    def _toggle_single_instance_rw(self, name: str) -> None:
-        if not self.worker or not self.bluestacks_data_paths:
-            raise Exception("Worker or BlueStacks data path not available.")
-        if name not in self.instance_data:
-            raise Exception(f"Instance data missing for {name}.")
-        instance_dir_path = self.instance_data[name].get("data_path")
-        if not instance_dir_path:
-            instance_dir_path = os.path.join(self.bluestacks_data_path, name)
-        if not os.path.isdir(instance_dir_path):
+    def _toggle_single_instance_rw(self, unique_id: str) -> None:
+        """Toggles R/W for a single, uniquely identified instance."""
+        if not self.worker:
+            raise Exception("Worker is not available.")
+        
+        instance = self.instance_data.get(unique_id)
+        if not instance:
+             raise Exception(f"Instance data missing for {unique_id}.")
+        
+        instance_dir_path = instance.get("data_path")
+        if not instance_dir_path or not os.path.isdir(instance_dir_path):
             raise FileNotFoundError(
-                f"Instance directory not found: {instance_dir_path}"
+                self.translation_manager.get_translation("Error: Instance path for '{}' not found. Cannot toggle R/W.").format(instance.get("original_name"))
             )
-        current_mode = self.instance_data[name].get("rw_mode", constants.MODE_UNKNOWN)
+            
+        current_mode = instance.get("rw_mode", constants.MODE_UNKNOWN)
         if current_mode == constants.MODE_UNKNOWN:
             raise Exception(
-                f"Cannot toggle R/W for '{name}': Current status is Unknown."
+                f"Cannot toggle R/W for '{unique_id}': Current status is Unknown."
             )
         new_mode = (
             constants.MODE_READONLY
             if current_mode == constants.MODE_READWRITE
             else constants.MODE_READWRITE
         )
-        new_state_text = (
+        on_off_text = (
             self.translation_manager.get_translation("On")
             if new_mode == constants.MODE_READWRITE
             else self.translation_manager.get_translation("Off")
         )
         try:
             instance_handler.modify_instance_files(instance_dir_path, new_mode)
-            self.instance_data[name]["rw_mode"] = new_mode
-            self.worker.instance_status_updated.emit(name, "rw", new_state_text)
-            log_mode_display = f"{new_state_text} ({new_mode})"
+            self.instance_data[unique_id]["rw_mode"] = new_mode
+            self.worker.instance_status_updated.emit(unique_id, "rw", on_off_text)
+            log_mode_display = f"{on_off_text} ({new_mode})"
             logger.info(
                 self.translation_manager.get_translation(
                     "R/W toggled for instance: {} to {}"
-                ).format(name, log_mode_display)
+                ).format(unique_id, log_mode_display)
             )
         except Exception as e:
-            logger.exception(f"Failed to toggle R/W for instance {name}")
-            raise Exception(f"Failed to modify instance files for {name}: {e}") from e
+            logger.exception(f"Failed to toggle R/W for instance {unique_id}")
+            raise Exception(f"Failed to modify instance files for {unique_id}: {e}") from e
 
     def _perform_root_toggle_operation(self) -> None:
         if not self.worker:
@@ -1009,35 +843,31 @@ class BluestacksRootToggle(QWidget):
         except Exception as e:
             self.worker.error.emit(str(e))
             return
-        if not self.config_paths:
-            err_msg = self.translation_manager.get_translation(
-                "Error: bluestacks.conf not found. Cannot toggle root."
-            )
-            logger.error(err_msg + " Paths: None")
-            self.worker.error.emit(err_msg)
-            return
-        selected_instances = [
-            n for n, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()
+        
+        selected_ids = [
+            uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()
         ]
+        
         show_reminder = any(
-            not self.instance_data.get(n, {}).get("root_enabled", False)
-            for n in selected_instances
+            not self.instance_data.get(uid, {}).get("root_enabled", False)
+            for uid in selected_ids
         )
         if show_reminder:
             self.worker.operation_message.emit("reminder", "show_magisk_reminder")
-        for name in selected_instances:
+        
+        for unique_id in selected_ids:
             self.worker.operation_message.emit(
                 "info",
                 self.translation_manager.get_translation(
                     "Toggling Root for {}..."
-                ).format(name),
+                ).format(unique_id),
             )
             try:
-                self._toggle_single_instance_root(name)
+                self._toggle_single_instance_root(unique_id)
             except Exception as e:
                 error_msg = self.translation_manager.get_translation(
                     "Error toggling root for {}: {}"
-                ).format(name, e)
+                ).format(unique_id, e)
                 self.worker.operation_message.emit("error", error_msg)
                 self.operation_had_errors = True
 
@@ -1049,31 +879,33 @@ class BluestacksRootToggle(QWidget):
         except Exception as e:
             self.worker.error.emit(str(e))
             return
-        if not self.bluestacks_data_path:
+            
+        if not self.installations:
             err_msg = self.translation_manager.get_translation(
-                "Error: BlueStacks path not found. Cannot toggle R/W."
+                "No BlueStacks installations found."
             )
             logger.error(err_msg)
             self.worker.error.emit(err_msg)
             return
-        selected_instances = [
-            n for n, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()
+            
+        selected_ids = [
+            uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()
         ]
         show_restart_reminder = False
-        for name in selected_instances:
+        for unique_id in selected_ids:
             self.worker.operation_message.emit(
                 "info",
                 self.translation_manager.get_translation(
                     "Toggling R/W for {}..."
-                ).format(name),
+                ).format(unique_id),
             )
             try:
-                self._toggle_single_instance_rw(name)
+                self._toggle_single_instance_rw(unique_id)
                 show_restart_reminder = True
             except Exception as e:
                 error_msg = self.translation_manager.get_translation(
                     "Error toggling R/W for {}: {}"
-                ).format(name, e)
+                ).format(unique_id, e)
                 self.worker.operation_message.emit("error", error_msg)
                 self.operation_had_errors = True
         if show_restart_reminder:
@@ -1086,13 +918,13 @@ class BluestacksRootToggle(QWidget):
 
     @pyqtSlot(str, str, str)
     def _update_instance_ui_status(
-        self, instance_name: str, status_type: str, new_value_text: str
+        self, unique_id: str, status_type: str, new_value_text: str
     ):
         logger.debug(
-            f"GUI Update Signal: Instance='{instance_name}', Type='{status_type}', Value='{new_value_text}'"
+            f"GUI Update Signal: Instance='{unique_id}', Type='{status_type}', Value='{new_value_text}'"
         )
-        if instance_name in self.instance_checkboxes:
-            widgets = self.instance_checkboxes[instance_name]
+        if unique_id in self.instance_checkboxes:
+            widgets = self.instance_checkboxes[unique_id]
             label_widget: Optional[QLabel] = None
             format_key = ""
             if status_type == "root":
@@ -1113,11 +945,11 @@ class BluestacksRootToggle(QWidget):
                 label_widget.setText(label_text)
             else:
                 logger.warning(
-                    f"Could not find label widget for '{status_type}' for instance '{instance_name}' during UI update."
+                    f"Could not find label widget for '{status_type}' for instance '{unique_id}' during UI update."
                 )
         else:
             logger.warning(
-                f"Received UI update for unknown or removed instance: '{instance_name}'"
+                f"Received UI update for unknown or removed instance: '{unique_id}'"
             )
 
     @pyqtSlot(str, str)
