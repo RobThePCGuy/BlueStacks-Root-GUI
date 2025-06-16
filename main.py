@@ -2,6 +2,7 @@
 import sys
 import os
 import logging
+import glob
 from typing import Dict, Any, Optional, List
 
 from PyQt5.QtWidgets import (
@@ -298,7 +299,10 @@ class BluestacksRootToggle(QWidget):
         self.bluestacks_data_path: Optional[str] = None
         self.bluestacks_data_paths: List[str] = []
         self.bluestacks_user_path: Optional[str] = None
+        self.bluestacks_user_paths: List[str] = []
         self.config_path: Optional[str] = None
+        self.config_paths: Dict[str, str] = {}
+        self.data_path_to_config_key: Dict[str, str] = {}
         self.instance_data: Dict[str, Dict[str, Any]] = {}
         self.instance_checkboxes: Dict[str, Dict[str, Any]] = {}
         self.is_toggling: bool = False
@@ -467,10 +471,10 @@ class BluestacksRootToggle(QWidget):
         self.instance_data = {}
         self.instance_checkboxes = {}
 
-        self.bluestacks_user_path = registry_handler.get_bluestacks_path(
+        self.bluestacks_user_paths = registry_handler.get_all_bluestacks_paths(
             constants.REGISTRY_USER_DIR_KEY
         )
-        if not self.bluestacks_user_path:
+        if not self.bluestacks_user_paths:
             error_message = self.translation_manager.get_translation(
                 "BlueStacks UserDefinedDir registry key not found."
             )
@@ -479,15 +483,20 @@ class BluestacksRootToggle(QWidget):
             )
             self.status_label.setText(error_message)
             logger.error(error_message)
+            self.config_paths = {}
             self.config_path = None
             self.bluestacks_data_path = None
             self.status_refresh_timer.stop()
             return
 
-        self.config_path = os.path.join(
-            self.bluestacks_user_path, constants.BLUESTACKS_CONF_FILENAME
-        )
-        logger.info(f"Config path determined: {self.config_path}")
+        self.config_paths = {}
+        for upath in self.bluestacks_user_paths:
+            key = "msi" if "msi5" in upath.lower() else "nxt" if "nxt" in upath.lower() else f"cfg{len(self.config_paths)}"
+            self.config_paths[key] = os.path.join(upath, constants.BLUESTACKS_CONF_FILENAME)
+
+        self.bluestacks_user_path = self.bluestacks_user_paths[0]
+        self.config_path = self.config_paths[next(iter(self.config_paths))]
+        logger.info(f"Config paths determined: {self.config_paths}")
         self.bluestacks_data_paths = registry_handler.get_all_bluestacks_paths(
             constants.REGISTRY_DATA_DIR_KEY
         )
@@ -506,13 +515,20 @@ class BluestacksRootToggle(QWidget):
             self.status_refresh_timer.stop()
             return
 
+        self.data_path_to_config_key = {}
+        for dp in self.bluestacks_data_paths:
+            key = "msi" if "msi5" in dp.lower() else "nxt" if "nxt" in dp.lower() else None
+            if key:
+                self.data_path_to_config_key[dp] = key
+
         self.bluestacks_data_path = self.bluestacks_data_paths[0]
         display_data_paths = ", ".join(self.bluestacks_data_paths)
+        display_user_paths = ", ".join(self.bluestacks_user_paths)
         self.path_label.setText(
-            f"User Path: {self.bluestacks_user_path}\n"
+            f"User Path: {display_user_paths}\n"
             f"Data Path: {display_data_paths}"
         )
-        logger.info(f"BlueStacks User path: {self.bluestacks_user_path}")
+        logger.info(f"BlueStacks User paths: {display_user_paths}")
         logger.info(f"BlueStacks Data paths: {display_data_paths}")
 
         self.update_instance_data()
@@ -531,8 +547,8 @@ class BluestacksRootToggle(QWidget):
         Reads bluestacks.conf and instance R/W status to update internal data cache.
         Handles potential errors during data retrieval.
         """
-        if not self.config_path:
-            logger.error("Config path is not set. Cannot update instance data.")
+        if not self.config_paths:
+            logger.error("Config paths are not set. Cannot update instance data.")
             return
         if not self.bluestacks_data_paths:
             logger.error("BlueStacks data paths are not set. Cannot update R/W status.")
@@ -540,61 +556,64 @@ class BluestacksRootToggle(QWidget):
 
         logger.debug("Updating internal instance data cache...")
         new_data: Dict[str, Dict[str, Any]] = {}
-        config_file_exists = os.path.isfile(self.config_path)
-        config_read_error = False
+        conf_entries: Dict[str, Dict[str, Any]] = {}
 
-        if config_file_exists:
-            try:
-                conf_data = config_handler.get_all_instance_root_statuses(
-                    self.config_path
-                )
-            except Exception as e:
-                logger.exception(
-                    f"Failed to read root statuses from {self.config_path}: {e}"
-                )
-                conf_data = {}
-                config_read_error = True
-                self.status_label.setText(
-                    self.translation_manager.get_translation(
-                        "Error reading config: {}"
-                    ).format(e)
-                )
-        else:
-            if not self._config_missing_logged:
-                logger.error(
-                    f"Config file missing: {self.config_path}. Cannot read root statuses."
-                )
-                self.status_label.setText(
-                    self.translation_manager.get_translation(
-                        "Config file not found: {}"
-                    ).format(os.path.basename(self.config_path))
-                )
-                self._config_missing_logged = True
-            conf_data = {}
+        for key, cfg_path in self.config_paths.items():
+            cfg_exists = os.path.isfile(cfg_path)
+            if cfg_exists:
+                try:
+                    partial = config_handler.get_all_instance_root_statuses(cfg_path)
+                except Exception as e:
+                    logger.exception(
+                        f"Failed to read root statuses from {cfg_path}: {e}"
+                    )
+                    partial = {}
+                    self.status_label.setText(
+                        self.translation_manager.get_translation("Error reading config: {}" ).format(e)
+                    )
+                for inst, status in partial.items():
+                    conf_entries[inst] = {"enabled": status, "config_key": key}
+            else:
+                if not self._config_missing_logged:
+                    logger.error(
+                        f"Config file missing: {cfg_path}. Cannot read root statuses."
+                    )
+                    self.status_label.setText(
+                        self.translation_manager.get_translation("Config file not found: {}" ).format(os.path.basename(cfg_path))
+                    )
+                    self._config_missing_logged = True
 
-        if config_file_exists and not config_read_error:
+        if conf_entries:
             self._config_missing_logged = False
 
-        instance_names = set(conf_data.keys())
-        if not instance_names and config_file_exists and not config_read_error:
-            logger.info(
-                f"No instances found in {self.config_path}. If instances exist, check the config file."
-            )
-        elif not instance_names and not config_file_exists:
-            logger.info("Config file missing, cannot determine instances.")
+        instance_names = set(conf_entries.keys())
 
         instance_dir_map: Dict[str, str] = {}
+        instance_cfg_key_map: Dict[str, str] = {}
         for data_path in self.bluestacks_data_paths:
             if not os.path.isdir(data_path):
                 continue
+            cfg_key = self.data_path_to_config_key.get(data_path)
             for entry in os.listdir(data_path):
                 full_path = os.path.join(data_path, entry)
-                if os.path.isdir(full_path):
+                if not os.path.isdir(full_path):
+                    continue
+                android_bstk_in = os.path.join(full_path, constants.ANDROID_BSTK_IN_FILE)
+                bstk_files = glob.glob(os.path.join(full_path, constants.BSTK_FILE_PATTERN))
+                if os.path.exists(android_bstk_in) or bstk_files:
                     instance_names.add(entry)
                     instance_dir_map.setdefault(entry, full_path)
+                    if cfg_key:
+                        instance_cfg_key_map.setdefault(entry, cfg_key)
+                else:
+                    logger.debug(
+                        f"Skipping directory '{full_path}' as no .bstk files were found"
+                    )
 
         for instance_name in sorted(instance_names):
-            is_root_enabled = conf_data.get(instance_name)
+            conf_entry = conf_entries.get(instance_name, {})
+            is_root_enabled = conf_entry.get("enabled")
+            cfg_key = conf_entry.get("config_key", instance_cfg_key_map.get(instance_name))
             rw_mode = constants.MODE_UNKNOWN
             instance_dir_path = instance_dir_map.get(instance_name)
 
@@ -626,6 +645,7 @@ class BluestacksRootToggle(QWidget):
                 "root_enabled": is_root_enabled,
                 "rw_mode": rw_mode,
                 "data_path": instance_dir_path,
+                "config_key": cfg_key,
             }
             logger.debug(
                 f"Instance '{instance_name}': Root={is_root_enabled}, R/W Mode='{rw_mode}'"
@@ -898,7 +918,7 @@ class BluestacksRootToggle(QWidget):
             raise Exception(error_message) from e
 
     def _toggle_single_instance_root(self, name: str) -> None:
-        if not self.worker or not self.config_path:
+        if not self.worker or not self.config_paths:
             raise Exception("Worker or config path not available.")
         if name not in self.instance_data:
             raise Exception(f"Instance data missing for {name}.")
@@ -914,11 +934,16 @@ class BluestacksRootToggle(QWidget):
             setting_key = (
                 f"{constants.INSTANCE_PREFIX}{name}{constants.ENABLE_ROOT_KEY}"
             )
+            cfg_key = self.instance_data[name].get("config_key")
+            cfg_path = self.config_paths.get(cfg_key)
+            if not cfg_path:
+                raise Exception(f"Config path not found for instance {name}")
+
             changed1 = config_handler.modify_config_file(
-                self.config_path, setting_key, new_state_val
+                cfg_path, setting_key, new_state_val
             )
             changed2 = config_handler.modify_config_file(
-                self.config_path, constants.FEATURE_ROOTING_KEY, new_state_val
+                cfg_path, constants.FEATURE_ROOTING_KEY, new_state_val
             )
             if not changed1 and not changed2:
                 logger.warning(
@@ -984,11 +1009,11 @@ class BluestacksRootToggle(QWidget):
         except Exception as e:
             self.worker.error.emit(str(e))
             return
-        if not self.config_path or not os.path.isfile(self.config_path):
+        if not self.config_paths:
             err_msg = self.translation_manager.get_translation(
                 "Error: bluestacks.conf not found. Cannot toggle root."
             )
-            logger.error(err_msg + f" Path: {self.config_path}")
+            logger.error(err_msg + " Paths: None")
             self.worker.error.emit(err_msg)
             return
         selected_instances = [
