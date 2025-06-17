@@ -2,7 +2,7 @@
 import os
 import logging
 import re
-from typing import Dict, Optional
+from typing import Dict, Any, Optional
 
 
 import constants
@@ -13,23 +13,6 @@ logger = logging.getLogger(__name__)
 def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
     """
     Modifies a specific setting in the bluestacks.conf file.
-
-    If the setting exists, its value is updated. If it doesn't exist,
-    it's appended to the end of the file. Handles values enclosed
-    in double quotes. Ensures the file is only written if changes are made.
-
-    Args:
-        config_path: Absolute path to the bluestacks.conf file.
-        setting: The configuration key to modify (e.g., "bst.instance.Nougat64.enable_root_access").
-        new_value: The desired string value for the setting (e.g., "1", "0").
-
-    Returns:
-        True if the file was modified, False otherwise.
-
-    Raises:
-        FileNotFoundError: If config_path does not point to an existing file.
-        IOError: If there are problems reading or writing the file (caught as Exception).
-        Exception: For other unexpected file I/O errors.
     """
     if not os.path.isfile(config_path):
         logger.error(f"Config file not found: {config_path}")
@@ -40,10 +23,8 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
     )
 
     new_line_content = f'{setting}="{new_value}"'
-
     lines = []
     try:
-
         with open(config_path, "r", encoding="utf-8") as file:
             lines = file.readlines()
     except Exception as e:
@@ -58,9 +39,7 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
 
     for line in lines:
         stripped_line = line.strip()
-
         if setting_pattern.match(stripped_line):
-
             if stripped_line != new_line_content:
                 logger.info(
                     f"Updating setting '{setting}'. Old line: '{stripped_line}', New line: '{new_line_content}'"
@@ -68,9 +47,6 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
                 updated_lines.append(new_line_content + "\n")
                 changed = True
             else:
-                logger.debug(
-                    f"Setting '{setting}' already has the desired value '{new_value}'. No change needed."
-                )
                 updated_lines.append(line)
             setting_found_and_updated = True
         else:
@@ -80,7 +56,6 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
         logger.info(
             f"Setting '{setting}' not found. Appending with value '{new_value}'."
         )
-
         if updated_lines and not updated_lines[-1].endswith("\n"):
             updated_lines[-1] += "\n"
         updated_lines.append(new_line_content + "\n")
@@ -96,31 +71,30 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
             raise IOError(
                 f"Error writing updated configuration file {config_path}: {e}"
             ) from e
-    else:
-        logger.debug(f"No changes were made to {config_path}.")
 
     return changed
 
 
-def get_all_instance_root_statuses(config_path: str) -> Dict[str, bool]:
+def get_complete_root_statuses(config_path: str) -> Dict[str, Any]:
     """
-    Reads the config file and returns a dictionary of instance names
-    and their root status (True if enabled, False otherwise).
+    Reads a config file and returns all instance root statuses AND the global rooting feature status.
 
     Args:
         config_path: Path to the bluestacks.conf file.
 
     Returns:
-        A dictionary mapping instance name (str) to root status (bool).
-        Returns an empty dictionary if the file is not found or an error occurs during reading.
+        A dictionary like: {'global_status': bool, 'instance_statuses': {name: bool}}
     """
-    statuses: Dict[str, bool] = {}
+    instance_statuses: Dict[str, bool] = {}
+    global_status: bool = False
+
     if not os.path.isfile(config_path):
         logger.warning(
             f"Config file not found for reading root statuses: {config_path}"
         )
-        return statuses
+        return {"global_status": False, "instance_statuses": {}}
 
+    # FIX: Regex for both instance-specific and global root keys
     instance_pattern = re.compile(
         r"^"
         + re.escape(constants.INSTANCE_PREFIX)
@@ -129,24 +103,28 @@ def get_all_instance_root_statuses(config_path: str) -> Dict[str, bool]:
         + r'\s*=\s*"([^"]*)"',
         re.IGNORECASE,
     )
+    global_pattern = re.compile(
+        r"^" + re.escape(constants.FEATURE_ROOTING_KEY) + r'\s*=\s*"1"', re.IGNORECASE
+    )
 
     try:
         with open(config_path, "r", encoding="utf-8") as file:
             for line in file:
-                match = instance_pattern.match(line.strip())
+                stripped_line = line.strip()
+                
+                # Check for global key
+                if global_pattern.match(stripped_line):
+                    global_status = True
+                    logger.debug(f"Found global root status in {config_path}: Enabled")
+                
+                # Check for instance key
+                match = instance_pattern.match(stripped_line)
                 if match:
-                    instance_name = match.group(1)
-                    value = match.group(2)
+                    instance_name, value = match.group(1), match.group(2)
                     is_enabled = value == "1"
-                    statuses[instance_name] = is_enabled
-                    logger.debug(
-                        f"Found root status for instance '{instance_name}': {'Enabled' if is_enabled else 'Disabled'}"
-                    )
+                    instance_statuses[instance_name] = is_enabled
     except Exception:
         logger.exception(f"Error reading config file {config_path} for root statuses.")
-        return {}
+        return {"global_status": False, "instance_statuses": {}}
 
-    if not statuses:
-        logger.info(f"No instance root status settings found in {config_path}.")
-
-    return statuses
+    return {"global_status": global_status, "instance_statuses": instance_statuses}
