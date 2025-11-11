@@ -1,161 +1,210 @@
 # BlueStacks Root GUI
 
-[![GitHub Repo Stars](https://img.shields.io/github/stars/RobThePCGuy/BlueStacks-Root-GUI?style=social)](https://github.com/RobThePCGuy/BlueStacks-Root-GUI) [![YouTube Video Views](https://img.shields.io/youtube/views/zpihBs3FtEc?style=social)](https://youtu.be/zpihBs3FtEc) [![Last Updated](https://img.shields.io/github/last-commit/RobThePCGuy/BlueStacks-Root-GUI)](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/commits/main)
+[![GitHub Repo Stars](https://img.shields.io/github/stars/RobThePCGuy/BlueStacks-Root-GUI?style=social)](https://github.com/RobThePCGuy/BlueStacks-Root-GUI)
+[![YouTube Video Views](https://img.shields.io/youtube/views/zpihBs3FtEc?style=social)](https://youtu.be/zpihBs3FtEc)
+[![Last Updated](https://img.shields.io/github/last-commit/RobThePCGuy/BlueStacks-Root-GUI)](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/commits/main)
 
------
+---
 
 ![GUI Screenshot](https://github.com/user-attachments/assets/10f965eb-e1cc-4d61-9b6f-0cbb484a4ef0)
 
-BlueStacks Root GUI is a utility designed to easily toggle root access settings and enable read/write (R/W) permissions for your BlueStacks 5 instances (specifically targeting the `BlueStacks_nxt` structure and the MSI App Player's `BlueStacks_msi5`). It aims to simplify the process described in the original guide: **[Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)** by providing a graphical interface.
+A utility designed to easily toggle root access and enable read/write (R/W) permissions for BlueStacks 5 instances. Provides a graphical interface for the process described in **[Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)**.
 
------
+> [!WARNING]
+> **BlueStacks 5.22+ users:** See [Version Compatibility](#version-compatibility) for known issues with recent updates.
+
+---
 
 ## Table of Contents
 
-  - [Features](/README.md#features)
-  - [Prerequisites](/README.md#prerequisites)
-  - [Installation & Download](/README.md#installation--download)
-  - [Usage Guide](/README.md#usage-guide)
-  - [Troubleshooting](/README.md#troubleshooting)
-  - [Development](/README.md#development)
-  - [Contributing](/README.md#contributing)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage Guide](#usage-guide)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Contributing](#contributing)
 
------
+---
 
 ## Features
 
-  - **Auto-Detection:** Discovers BlueStacks installation paths via the Windows Registry (`SOFTWARE\BlueStacks_nxt` or `SOFTWARE\BlueStacks_msi5`).
-  - **Instance Listing:** Reads `bluestacks.conf` to find and list configured instances.
-  - **Root Toggle:** Modifies `bst.instance.<name>.enable_root_access` and `bst.feature.rooting` in `bluestacks.conf`.
-  - **Read/Write Toggle:** Modifies the `Type` attribute (`Normal` vs `Readonly`) for key disk files (`fastboot.vdi`, `Root.vhd`) within instance-specific `.bstk` files.
-  - **Process Handling:** Detects running BlueStacks processes and attempts graceful termination before applying changes.
-  - **Status Display:** Shows the current Root and R/W status for each detected instance.
-  - **Responsive UI:** Uses background threads (`QThread`) for potentially long operations (file I/O, process termination) to keep the GUI responsive.
-  - **Basic Internationalization:** Includes English and Japanese translations.
+- **Auto-Detection** - Discovers BlueStacks installation paths via Windows Registry
+- **Instance Listing** - Reads `bluestacks.conf` to display all configured instances
+- **Root Toggle** - Modifies `bst.instance.<name>.enable_root_access` and `bst.feature.rooting`
+- **Read/Write Toggle** - Changes disk file attributes (`fastboot.vdi`, `Root.vhd`) between `Normal` and `Readonly`
+- **Process Handling** - Detects and gracefully terminates BlueStacks processes before applying changes
+- **Status Display** - Shows current Root and R/W status for each instance
+- **Responsive UI** - Uses background threads (`QThread`) to keep the interface responsive
+- **Internationalization** - Includes English and Japanese translations
 
 ## Prerequisites
 
-  - **Operating System:** Windows 10 or later (due to registry keys and file paths used).
-  - **BlueStacks Version:** BlueStacks 5 or MSI App Player (versions using the `BlueStacks_nxt` or `BlueStacks_msi5` registry keys and configuration structure). *Compatibility with other versions is not guaranteed.*
-  - **Python (for development):** Python 3.7+
-  - **Administrator Rights:** **Required** to read the HKLM registry and terminate BlueStacks processes effectively. Run the application as an administrator.
-  - **Dependencies:** Listed in `requirements.txt`. Key dependencies include `PyQt5`, `pywin32`, `psutil`.
+- **Operating System:** Windows 10 or later
+- **BlueStacks Version:** BlueStacks 5 or MSI App Player (5.21 or earlier recommended)
+- **Administrator Rights:** Required for registry access and process termination
+- **Python (development only):** Python 3.7+
 
-## Installation & Download
+## Installation
 
-### For End Users (Executable Download)
+### Option 1: Download Executable (Recommended)
 
-1.  **Download the Latest Executable:** Go to the **[Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases)** page on GitHub and download the latest `.exe` file.
-2.  **Run as Administrator:** Right-click the downloaded `.exe` and select "Run as administrator". This is necessary for registry access and process termination.
-3.  **Important Pre-Run Steps:**
-      * **Clean BlueStacks Install Recommended:** If you encounter issues, fully uninstall *all* previous BlueStacks versions using the official **[BlueStacks Cleaner tool](https://support.bluestacks.com/hc/en-us/articles/360057724751-How-to-uninstall-BlueStacks-5-BlueStacks-X-and-BlueStacks-Services-completely-from-your-PC)**.
-      * **Install Latest BlueStacks 5:** Download and install the latest version from the official **[BlueStacks website](https://www.bluestacks.com/)**.
+1. Download the latest `.exe` from **[Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases)**
+2. Right-click the executable and select **"Run as administrator"**
 
-### For Developers (Building from Source)
+**Before first use:**
+- Uninstall previous BlueStacks versions using the official **[BlueStacks Cleaner tool](https://support.bluestacks.com/hc/en-us/articles/360057724751-How-to-uninstall-BlueStacks-5-BlueStacks-X-and-BlueStacks-Services-completely-from-your-PC)**
+- Install **BlueStacks 5.21 or earlier** (see [Version Compatibility](#version-compatibility))
 
-1.  **Clone the Repository:**
+### Option 2: Run from Source
 
-    ```bash
-    git clone https://github.com/RobThePCGuy/BlueStacks-Root-GUI.git
-    cd BlueStacks-Root-GUI
-    ```
+```bash
+git clone https://github.com/RobThePCGuy/BlueStacks-Root-GUI.git
+cd BlueStacks-Root-GUI
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+```
 
-2.  **Create a Virtual Environment (Recommended):**
+**Note:** Run your terminal as administrator.
 
-    ```bash
-    python -m venv venv
-    .\venv\Scripts\activate
-    ```
+### Building the Executable
 
-3.  **Install Dependencies:**
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --name BlueStacksRootGUI main.py
+```
 
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Run the Application:**
-
-    ```bash
-    python main.py
-    ```
-
-    *(Remember to run your terminal/IDE as administrator if running directly)*
-
-5.  **Build the Executable (Optional):**
-
-    ```bash
-    pip install pyinstaller
-    pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --name BlueStacksRootGUI main.py
-    ```
-
-    The executable will be in the `dist/` folder.
+Output will be in the `dist/` folder.
 
 ## Usage Guide
 
-1.  **Launch as Administrator:** Start the GUI (`.exe` or `python main.py`) with administrator privileges.
-2.  **Instance Detection:** The GUI will attempt to find your BlueStacks installation and list the instances found in `bluestacks.conf`. Statuses (Root, R/W) will be displayed.
-3.  **Select Instances:** Check the box(es) next to the instance(s) you want to modify.
-4.  **Toggle Root:**
-      * Click **"Toggle Root"**. This enables the necessary settings in `bluestacks.conf`.
-      * **Turn this ON only temporarily** while you are installing Kitsune Mask.
-5.  **Toggle R/W:**
-      * Click **"Toggle R/W"**. This sets the instance's disk files (`Root.vhd`, `fastboot.vdi`) to `Normal` (Read/Write) mode.
-      * **This needs to be left ON** for the system modifications (like Kitsune Mask) to persist after the instance restarts.
-6.  **Install Kitsune Mask:**
-      * Ensure **Root is ON** and **R/W is ON** in the GUI for the target instance.
-      * Download the latest **[Kitsune Mask APK](https://github.com/1q23lyc45/KitsuneMagisk/releases)**.
-      * Launch the modified instance using the BlueStacks Multi-Instance Manager.
-      * Install the downloaded Kitsune Mask APK onto the instance (drag-and-drop usually works).
-      * Open the Kitsune Mask app inside the instance.
-      * Tap **Install**.
-      * Tap **Next**.
-      * Select the option **"Direct Install to /system"**.
-          * *Troubleshooting:* If the "Direct Install" option is missing, fully close and reopen the Kitsune Mask app *inside* BlueStacks. It should then appear.
-      * Let the installation complete and reboot when prompted (the instance will restart).
-7.  **Final GUI Step:**
-      * **Crucially:** Once Kitsune Mask is successfully installed to `/system`, return to the BlueStacks Root GUI.
-      * Select the instance again.
-      * Click **"Toggle Root"** to turn the configuration setting **OFF**.
-      * **Leave "Toggle R/W" ON.**
-8.  **Verify:** Launch the instance. Open Kitsune Mask; it should show as installed and active. Root applications should now work.
-9.  **Close:** Close the BlueStacks Root GUI.
+### Initial Setup
+
+1. Launch the GUI **as administrator**
+2. The app will auto-detect your BlueStacks installation and list available instances
+3. Select the instance(s) you want to modify
+
+### Installing Kitsune Mask
+
+1. **Enable Root & R/W**
+   - Select your target instance
+   - Click **"Toggle Root"** (turn ON)
+   - Click **"Toggle R/W"** (turn ON)
+
+2. **Install Kitsune Mask**
+   - Download **[Kitsune Mask APK](https://github.com/1q23lyc45/KitsuneMagisk/releases)**
+   - Launch the instance via BlueStacks Multi-Instance Manager
+   - Install the APK (drag-and-drop)
+   - Open Kitsune Mask app
+
+3. **Direct Install to System**
+   - Tap **Install** -> **Next**
+   - Select **"Direct Install to /system"**
+   - If this option is missing, close and reopen the Kitsune Mask app
+   - Let installation complete and reboot when prompted
+
+4. **Final Configuration**
+   - Return to BlueStacks Root GUI
+   - Click **"Toggle Root"** to turn it OFF
+   - **Leave "Toggle R/W" ON**
+
+5. **Verify**
+   - Launch instance and open Kitsune Mask
+   - Should show as installed and active
 
 ## Troubleshooting
 
-  - **"Path Not Found" / No Instances Listed:**
-      * Ensure you ran the GUI as **Administrator**.
-      * Verify BlueStacks 5 or MSI App Player is installed correctly and the registry keys (`HKLM\SOFTWARE\BlueStacks_nxt\UserDefinedDir` and `DataDir` or `HKLM\SOFTWARE\BlueStacks_msi5`) exist.
-      * A clean reinstall of BlueStacks using the official cleaner tool might be necessary.
-  - **Permission Errors during Toggle:**
-      * You *must* run the GUI as Administrator.
-  - **R/W Toggle Doesn't Stick:**
-      * Ensure BlueStacks processes (`HD-Player.exe`, `HD-Agent.exe`, etc.) were fully terminated before toggling. The GUI attempts this, but manual termination via Task Manager might be needed if issues persist.
-      * Ensure you are leaving the **R/W** setting **ON** in the GUI after installing Kitsune Mask.
-  - **"Direct Install to /system" Missing in Kitsune Mask:**
-      * Make sure **Root** and **R/W** were both **ON** in the GUI *before* launching the instance and attempting installation.
-      * Try closing and reopening the Kitsune Mask app within the BlueStacks instance.
-  - **Errors during Toggle Operations:** Check the status bar in the GUI and the application logs (if run from source/console) for specific error messages.
+### Version Compatibility
+
+| BlueStacks Version | Root Working? | Notes |
+|-------------------|---------------|-------|
+| 5.20.x | Yes | Fully compatible |
+| 5.21.x | Yes | Last confirmed working version |
+| 5.22.0.1102+ | No | Play Integrity enforcement blocks root |
+
+**Issue:** BlueStacks 5.22+ (October 2025) shows *"Android system doesn't meet security"* popup when root/R/W is enabled.
+
+**Cause:** Google replaced SafetyNet with Play Integrity API in January 2025. BlueStacks 5.22 now enforces integrity checks that detect system modifications.
+
+**Solution:** Downgrade to BlueStacks 5.21
+
+<details>
+<summary><b>How to Downgrade to 5.21</b></summary>
+
+1. **Backup your data** - Export important app data/saves
+
+2. **Complete uninstall**
+   - Download **[BSTCleaner](https://support.bluestacks.com/hc/en-us/articles/360057724751)**
+   - Run to remove all BlueStacks files
+
+3. **Install BlueStacks 5.21**
+   - Download from **[Uptodown Archive](https://bluestacks-app-player.en.uptodown.com/windows/versions)**
+   - Look for version **5.21.x.xxxx** (January 2025)
+
+4. **Disable auto-updates**
+   - Edit `C:\ProgramData\BlueStacks_nxt\bluestacks.conf`
+   - Add or modify: `bst.auto_update="0"`
+
+5. **Apply rooting guide** - Follow normal steps above
+
+</details>
+
+**Tracking:** See [Issue #11](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/issues/11) for updates.
+
+### Common Issues
+
+**No instances listed / "Path Not Found"**
+- Run GUI as **Administrator**
+- Verify registry keys exist: `HKLM\SOFTWARE\BlueStacks_nxt` or `HKLM\SOFTWARE\BlueStacks_msi5`
+- Perform clean reinstall using official cleaner tool
+
+**Permission errors during toggle**
+- Must run as Administrator
+
+**R/W toggle doesn't persist**
+- Ensure BlueStacks processes were fully terminated
+- Manually kill processes via Task Manager if needed
+- Keep R/W **ON** after installing Kitsune Mask
+
+**"Direct Install to /system" option missing**
+- Verify both **Root** and **R/W** are ON before launching instance
+- Close and reopen Kitsune Mask app within BlueStacks
+
+**Toggle operation errors**
+- Check status bar in GUI for error messages
+- Review console logs if running from source
 
 ## Development
 
-Follow the steps in [Installation & Download \> For Developers](/README.md#for-developers-building-from-source).
+### Project Structure
 
-Key modules:
+- `main.py` - PyQt5 GUI, application logic, threading
+- `config_handler.py` - Reads/writes `bluestacks.conf`
+- `instance_handler.py` - Modifies `.bstk` files, handles processes
+- `registry_handler.py` - Reads BlueStacks paths from Windows Registry
+- `constants.py` - Shared constants (keys, filenames, modes)
 
-  - `main.py`: PyQt5 GUI, application logic, threading.
-  - `config_handler.py`: Reads/writes `bluestacks.conf`.
-  - `instance_handler.py`: Modifies `.bstk` files, handles processes.
-  - `registry_handler.py`: Reads BlueStacks paths from Windows Registry.
-  - `constants.py`: Shared constant values (keys, filenames, modes, etc.).
+### Dependencies
+
+See `requirements.txt`. Key dependencies:
+- PyQt5
+- pywin32
+- psutil
 
 ## Contributing
 
-Contributions are welcome\! Please follow these guidelines:
+Contributions are welcome! Please:
 
-  - Maintain code style and structure.
-  - Use the `logging` module appropriately.
-  - Add/update docstrings for new/modified code.
-  - Ensure UI remains responsive (use background threads for blocking tasks).
-  - Update `constants.py` if adding new configurable values.
-  - Submit pull requests with clear descriptions of changes.
-  - Open an issue to discuss significant changes beforehand.
+- Maintain existing code style and structure
+- Use the `logging` module for debugging output
+- Add/update docstrings for new or modified code
+- Use background threads for blocking operations to keep UI responsive
+- Update `constants.py` for new configurable values
+- Submit pull requests with clear descriptions
+- Open an issue to discuss significant changes before implementing
+
+---
+
+**Related Project:** [Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)
