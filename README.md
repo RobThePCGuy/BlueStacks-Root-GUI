@@ -144,8 +144,10 @@ Output will be in the `dist/` folder.
    - Look for version **5.21.x.xxxx** (January 2025)
 
 4. **Disable auto-updates**
-   - Edit `C:\ProgramData\BlueStacks_nxt\bluestacks.conf`
-   - Add or modify: `bst.auto_update="0"`
+   - Open `services.msc` (Win+R → type `services.msc`)
+   - Find **"BlueStacks Updater Service"** (`BstHdUpdaterSvc`)
+   - Right-click → Properties → Set Startup type to **Disabled** → Stop the service
+   - ~~`bst.auto_update="0"` in bluestacks.conf does **not** work — it is silently ignored~~
 
 5. **Apply rooting guide** - Follow normal steps above
 
