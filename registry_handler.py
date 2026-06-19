@@ -20,6 +20,8 @@ def get_all_bluestacks_installations() -> List[Installation]:
         full_reg_path_log = f"HKEY_LOCAL_MACHINE\\{reg_path}"
         user_dir = None
         data_dir = None
+        install_dir = None
+        version = None
         try:
             with winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE, reg_path, 0, winreg.KEY_READ
@@ -45,13 +47,36 @@ def get_all_bluestacks_installations() -> List[Installation]:
                 except Exception as e:
                     logger.error(f"Error reading '{constants.REGISTRY_DATA_DIR_KEY}' for {source_name}: {e}")
 
+                try:
+                    reg_value, reg_type = winreg.QueryValueEx(key, constants.REGISTRY_INSTALL_DIR_KEY)
+                    if reg_type == winreg.REG_SZ:
+                        install_dir = str(reg_value)
+                        logger.info(f"Found '{constants.REGISTRY_INSTALL_DIR_KEY}' for {source_name}: {install_dir}")
+                except FileNotFoundError:
+                    logger.debug(f"'{constants.REGISTRY_INSTALL_DIR_KEY}' not found for {source_name}.")
+                except Exception as e:
+                    logger.error(f"Error reading '{constants.REGISTRY_INSTALL_DIR_KEY}' for {source_name}: {e}")
+
+                try:
+                    reg_value, reg_type = winreg.QueryValueEx(key, constants.REGISTRY_VERSION_KEY)
+                    if reg_type == winreg.REG_SZ:
+                        version = constants.parse_version(reg_value)
+                        logger.info(f"Found '{constants.REGISTRY_VERSION_KEY}' for {source_name}: {reg_value} -> {version}")
+                except FileNotFoundError:
+                    logger.debug(f"'{constants.REGISTRY_VERSION_KEY}' not found for {source_name}.")
+                except Exception as e:
+                    logger.error(f"Error reading '{constants.REGISTRY_VERSION_KEY}' for {source_name}: {e}")
+
             if user_dir and data_dir:
                 config_path = os.path.join(user_dir, constants.BLUESTACKS_CONF_FILENAME)
                 installations.append({
                     "source": source_name,
                     "user_path": user_dir,
                     "data_path": data_dir,
+                    "install_path": install_dir,
                     "config_path": config_path,
+                    "version": version,
+                    "patch_mode": bool(version and version >= constants.PATCH_MIN_VERSION),
                 })
 
         except FileNotFoundError:
