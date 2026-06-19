@@ -11,6 +11,22 @@ REGISTRY_BASE_PATH = r"SOFTWARE\BlueStacks_nxt"
 REGISTRY_MSI_BASE_PATH = r"SOFTWARE\BlueStacks_msi5"
 REGISTRY_DATA_DIR_KEY = "DataDir"
 REGISTRY_USER_DIR_KEY = "UserDefinedDir"
+# Program-files directory that holds HD-Player.exe etc. (for the integrity patch)
+REGISTRY_INSTALL_DIR_KEY = "InstallDir"
+REGISTRY_VERSION_KEY = "Version"
+
+# Builds at/after this introduced the disk-integrity check and the signed-whitelist
+# guest su, which require the binary + offline-su patches. Older builds use the
+# classic conf-based rooting (enable_root_access keys) and hide the patch buttons.
+PATCH_MIN_VERSION = (5, 22, 150, 1014)
+
+
+def parse_version(s):
+    """'5.22.166.1003' -> (5, 22, 166, 1003); None on failure."""
+    try:
+        return tuple(int(x) for x in str(s).strip().split("."))
+    except Exception:
+        return None
 
 # FIX: Add constants to identify the source application
 APP_SOURCE_NXT = "NXT"
