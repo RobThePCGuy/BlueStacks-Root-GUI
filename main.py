@@ -2,7 +2,7 @@
 import sys
 import os
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -14,13 +14,9 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QCheckBox,
-    QComboBox,
     QMessageBox,
-    QProgressBar,
-    QSizePolicy,
-    QSpacerItem,
 )
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject, pyqtSlot
+from PyQt5.QtCore import Qt, QTimer, QThread
 from PyQt5.QtGui import QIcon
 
 
