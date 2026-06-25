@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      # Lint: flake8 "must-fix" set (real syntax errors, undefined names,
+      # invalid literal comparisons) plus unused-import detection. Kept lean
+      # so the gate is green and meaningful without forcing a full reformat.
+      # pywin32 is Windows-only; ruff does not import the code, so this is
+      # safe to run on the Linux runner.
+      - name: Ruff lint
+        run: ruff check --select E9,F63,F7,F82,F401 .
+
+      # Compile check: catches syntax errors across every module. compileall
+      # compiles without importing, so the Windows-only pywin32 import in
+      # registry_handler.py does not break this on ubuntu.
+      - name: Compile check
+        run: python -m compileall -q .
