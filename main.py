@@ -53,6 +53,25 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+class _OpWorker(QObject):
+    """Runs a blocking job(progress) on a worker thread, relaying progress text."""
+    progress = pyqtSignal(str)
+    done = pyqtSignal(bool, str)
+
+    def __init__(self, job):
+        super().__init__()
+        self._job = job
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            summary = self._job(self.progress.emit)
+            self.done.emit(True, summary)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Background operation failed")
+            self.done.emit(False, str(exc))
+
+
 class BluestacksRootToggle(QWidget):
     """Main application window for toggling BlueStacks root and R/W settings."""
 
@@ -62,7 +81,7 @@ class BluestacksRootToggle(QWidget):
         self.instance_data: Dict[str, Dict[str, Any]] = {}
         self.instance_checkboxes: Dict[str, Dict[str, Any]] = {}
         self.is_toggling: bool = False
-        
+
         self.setWindowTitle(constants.APP_NAME)
         self._set_icon()
         self.status_refresh_timer = QTimer(self)
@@ -143,7 +162,7 @@ class BluestacksRootToggle(QWidget):
         if not self.installations:
             self.path_label.setText("No BlueStacks installations found.")
             return
-        
+
         path_details = ["Installations Found:"]
         for inst in self.installations:
             ver = ".".join(map(str, inst["version"])) if inst.get("version") else "?"
@@ -162,7 +181,7 @@ class BluestacksRootToggle(QWidget):
 
     def update_instance_data(self) -> None:
         if not self.installations: return
-        
+
         all_found_instances: Dict[str, Dict[str, Any]] = {}
         for inst in self.installations:
             source_id, config_path, data_path = inst["source"], inst["config_path"], inst["data_path"]
@@ -170,14 +189,14 @@ class BluestacksRootToggle(QWidget):
             root_info = config_handler.get_complete_root_statuses(config_path)
             global_root_on = root_info['global_status']
             instance_root_statuses = root_info['instance_statuses']
-            
+
             disk_instances = {entry for entry in (os.listdir(data_path) if os.path.isdir(data_path) else []) if os.path.isdir(os.path.join(data_path, entry))}
             all_instance_names = set(instance_root_statuses.keys()) | disk_instances
 
             for name in sorted(all_instance_names):
                 unique_id = f"{name} ({source_id})"
                 instance_dir_path = os.path.join(data_path, name)
-                
+
                 rw_mode = constants.MODE_UNKNOWN
                 if os.path.isdir(instance_dir_path):
                     is_readonly = instance_handler.is_instance_readonly(instance_dir_path)
@@ -186,11 +205,14 @@ class BluestacksRootToggle(QWidget):
 
                 individual_root_on = instance_root_statuses.get(name, False)
                 if patch_mode:
-                    # 5.22.150.1014+: root status = the real guest-su patch state
-                    # (sidecar), immune to BlueStacks flipping enable_root_access.
+                    # 5.22.150.1014+: app root = the guest su binary actually patched
+                    # (tracked by the Data.vhdx sidecar). enable_root_access only makes
+                    # /system/xbin/su appear; apps still need the su patched because
+                    # they cannot reach /dev/bstvmsg for the dev-mode escape, so the
+                    # sidecar -- not the conf flag -- is the real indicator.
                     effective_root_status = su_patch_offline.instance_root_state(instance_dir_path)
                 else:
-                    # Older builds: classic conf-based rooting.
+                    # Older builds: global feature.rooting + per-instance flag.
                     effective_root_status = global_root_on and individual_root_on
 
                 all_found_instances[unique_id] = {
@@ -202,12 +224,12 @@ class BluestacksRootToggle(QWidget):
                     "individual_root_status": individual_root_on,
                     "patch_mode": patch_mode,
                 }
-        
+
         self.instance_data = {
             uid: data for uid, data in all_found_instances.items()
             if data["rw_mode"] != constants.MODE_UNKNOWN
         }
-        
+
         logger.debug(f"Instance data updated. Displaying {len(self.instance_data)} instances.")
 
     def _clear_instance_widgets(self):
@@ -218,7 +240,7 @@ class BluestacksRootToggle(QWidget):
 
     def update_instance_checkboxes(self, preserve_selection: bool = True):
         previous_selection = {uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()} if preserve_selection else set()
-        
+
         self._clear_instance_widgets()
         self.instance_checkboxes = {}
 
@@ -226,39 +248,62 @@ class BluestacksRootToggle(QWidget):
             data = self.instance_data[unique_id]
             checkbox = QCheckBox(unique_id)
             checkbox.setChecked(unique_id in previous_selection)
-            
+
             root_text = "On" if data["root_enabled"] else "Off"
             rw_text = "On" if data["rw_mode"] == constants.MODE_READWRITE else "Off"
-            
+
             self.instance_layout.addWidget(checkbox, row, 0)
             self.instance_layout.addWidget(QLabel(f"Root: {root_text}"), row, 1)
             self.instance_layout.addWidget(QLabel(f"R/W: {rw_text}"), row, 2)
             self.instance_checkboxes[unique_id] = {"checkbox": checkbox}
 
-    def _toggle_single_instance_root(self, unique_id: str):
-        """Dispatch root toggle by build: su-patch (5.22.150.1014+) or conf (older)."""
+    def _toggle_single_instance_root(self, unique_id, progress=None):
+        """Dispatch root toggle by build: 5.22.150.1014+ needs the su-binary patch
+        AND enable_root_access; older builds just toggle the conf flag."""
         if self.instance_data[unique_id].get("patch_mode"):
-            self._toggle_root_supatch(unique_id)
+            self._toggle_root_patchmode(unique_id, progress)
         else:
-            self._toggle_root_conf(unique_id)
+            self._toggle_root_conf(unique_id, progress)
 
-    def _toggle_root_supatch(self, unique_id: str):
-        """5.22.150.1014+: root/un-root by patching the guest su offline.
+    def _toggle_root_patchmode(self, unique_id, progress=None):
+        """5.22.150.1014+ app root needs BOTH halves:
+          1. enable_root_access=1, so BlueStacks exposes /system/xbin/su, and
+          2. the guest su binary patched (isDeveloperMode->true) inside Data.vhdx.
+        An app cannot reach /dev/bstvmsg, so the host-side dev-mode escape (the
+        engine patch) only grants a root *shell* -- apps stay denied until the su
+        binary itself is patched. The engine patch is still required (integrity
+        bypass + keeping enable_root_access from being reset).
 
-        Root ON extracts the gated su from Root.vhd, backs up the original bytes
-        to a sidecar, patches isDeveloperMode->true and writes it back. Root OFF
-        restores the original su from the backup. Instance must be stopped first
-        (the caller terminates BlueStacks). Independent of enable_root_access, so
-        BlueStacks can't flip it off on launch.
+        su only exists in Data.vhdx after the instance has booted once with root
+        enabled; if it isn't there yet, su_patch_offline reports that and you
+        re-toggle after a single boot.
         """
         instance = self.instance_data[unique_id]
         turn_on = not instance["root_enabled"]
-        results = su_patch_offline.set_instance_root(instance["data_path"], turn_on)
-        logger.info("Root %s (su-patch) for %s: %s", "ON" if turn_on else "OFF",
+        config_path = instance["config_path"]
+        key = f"{constants.INSTANCE_PREFIX}{instance['original_name']}{constants.ENABLE_ROOT_KEY}"
+        if turn_on:
+            if progress:
+                progress("Part 1/2: enabling root access in bluestacks.conf...")
+            config_handler.modify_config_file(config_path, key, "1")
+            config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, "1")
+            if progress:
+                progress("Part 2/2: patching guest su in Data.vhdx...")
+            results = su_patch_offline.set_instance_root(instance["data_path"], True, progress)
+        else:
+            if progress:
+                progress("Part 1/2: restoring guest su in Data.vhdx...")
+            results = su_patch_offline.set_instance_root(instance["data_path"], False, progress)
+            if progress:
+                progress("Part 2/2: disabling root access in bluestacks.conf...")
+            config_handler.modify_config_file(config_path, key, "0")
+        logger.info("Root %s (patch-mode) for %s: %s", "ON" if turn_on else "OFF",
                     unique_id, " | ".join(results))
 
-    def _toggle_root_conf(self, unique_id: str):
-        """Older builds (< 5.22.150.1014): classic conf-based rooting."""
+    def _toggle_root_conf(self, unique_id, progress=None):
+        """Root toggle via bluestacks.conf (enable_root_access + feature.rooting)."""
+        if progress:
+            progress("updating bluestacks.conf...")
         instance = self.instance_data[unique_id]
         config_path, original_name = instance["config_path"], instance["original_name"]
         is_currently_on = instance["root_enabled"]
@@ -276,9 +321,11 @@ class BluestacksRootToggle(QWidget):
             config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, "1")
         logger.info(f"Root toggle (conf) processed for {unique_id}")
 
-    def _toggle_single_instance_rw(self, unique_id: str):
+    def _toggle_single_instance_rw(self, unique_id, progress=None):
         instance = self.instance_data[unique_id]
         new_mode = constants.MODE_READONLY if instance["rw_mode"] == constants.MODE_READWRITE else constants.MODE_READWRITE
+        if progress:
+            progress("setting disk to %s..." % new_mode)
         instance_handler.modify_instance_files(instance["data_path"], new_mode)
         logger.info(f"R/W toggled for instance: {unique_id} to {new_mode}")
 
@@ -287,30 +334,71 @@ class BluestacksRootToggle(QWidget):
         if not selected_ids:
             QMessageBox.information(self, "No Selection", f"No instances selected to toggle {operation_name}.")
             return
+        total = len(selected_ids)
 
-        # Simplified operation handling for clarity
-        self.status_label.setText(f"Toggling {operation_name}...")
-        QApplication.processEvents()
-        
-        # We should kill bluestacks before making changes
-        instance_handler.terminate_bluestacks()
-        QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+        def job(progress):
+            progress("Closing BlueStacks...")
+            logger.info("Terminating BlueStacks before %s of %d instance(s)", operation_name, total)
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            for idx, uid in enumerate(selected_ids, 1):
+                prefix = "Part %d/%d (%s)" % (idx, total, uid)
+                logger.info("---- %s: %s ----", prefix, operation_name)
+                progress("%s: %s..." % (prefix, operation_name))
+                operation_func(uid, lambda m, _p=prefix: progress("%s: %s" % (_p, m)))
+            return "%s complete for %d instance(s). Restart the instance(s)." % (operation_name, total)
 
-        for uid in selected_ids:
-            try:
-                operation_func(uid)
-            except Exception as e:
-                logger.error(f"Error toggling {operation_name} for {uid}: {e}")
-                self.status_label.setText(f"Error for {uid}")
-                break
-        else:
-             self.status_label.setText("Operation completed.")
-
-        # Refresh the UI with the new state
-        self.update_instance_statuses(preserve_selection=True)
+        self._run_async(job, f"Toggling {operation_name}...")
 
     def handle_toggle_root(self): self._perform_operation(self._toggle_single_instance_root, "Root")
     def handle_toggle_rw(self): self._perform_operation(self._toggle_single_instance_rw, "R/W")
+
+    # ---- Background-thread plumbing (keeps the UI responsive) -------------
+    def _action_buttons(self):
+        return [self.root_toggle_button, self.rw_toggle_button,
+                self.patch_button, self.restore_button]
+
+    def _set_busy(self, busy):
+        for b in self._action_buttons():
+            b.setEnabled(not busy)
+        if busy:
+            self.status_refresh_timer.stop()
+
+    def _run_async(self, job, start_text):
+        """Run job(progress) on a worker thread; relay progress to the status bar."""
+        if getattr(self, "_op_thread", None) is not None:
+            QMessageBox.information(self, "Busy", "An operation is already running.")
+            return
+        self._set_busy(True)
+        self.status_label.setText(start_text)
+        logger.info("==== %s ====", start_text)
+        self._op_thread = QThread(self)
+        self._op_worker = _OpWorker(job)
+        self._op_worker.moveToThread(self._op_thread)
+        self._op_thread.started.connect(self._op_worker.run)
+        self._op_worker.progress.connect(self._on_async_progress)
+        self._op_worker.done.connect(self._on_async_done)
+        self._op_worker.done.connect(self._op_thread.quit)
+        self._op_thread.finished.connect(self._cleanup_async)
+        self._op_thread.start()
+
+    def _on_async_progress(self, msg):
+        self.status_label.setText(msg)
+
+    def _on_async_done(self, ok, summary):
+        self._set_busy(False)
+        self.status_label.setText(summary if ok else f"Error: {summary}")
+        logger.info("Operation finished (ok=%s): %s", ok, summary)
+        self.update_instance_statuses(preserve_selection=True)
+        self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
+
+    def _cleanup_async(self):
+        if getattr(self, "_op_worker", None) is not None:
+            self._op_worker.deleteLater()
+        if getattr(self, "_op_thread", None) is not None:
+            self._op_thread.deleteLater()
+        self._op_worker = None
+        self._op_thread = None
 
     # ---- Engine patch (5.22.150.1014+) ------------------------------------
     def _install_dirs_or_warn(self) -> Optional[List[str]]:
@@ -366,28 +454,25 @@ class BluestacksRootToggle(QWidget):
         if confirm != QMessageBox.Yes:
             return
 
-        instance_handler.terminate_bluestacks()
-        QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+        total = len(install_dirs)
 
-        all_results: List[str] = []
-        for install_dir in install_dirs:
-            try:
+        def job(progress):
+            progress("Closing BlueStacks...")
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            all_results = []
+            for i, install_dir in enumerate(install_dirs, 1):
+                progress("Patching engine %d/%d: HD-Player.exe..." % (i, total))
                 all_results.extend(integrity_patch.patch_installation(install_dir))
+                progress("Patching engine %d/%d: HD-MultiInstanceManager.exe..." % (i, total))
                 all_results.extend(root_persistence.patch_root_persistence(install_dir))
-            except Exception as e:
-                logger.exception("Root patch failed")
-                all_results.append(f"{install_dir}: ERROR - {e}")
+            for line in all_results:
+                logger.info("  %s", line)
+            logger.info("Engine patched. Next: Toggle Root per instance, then restart. "
+                        "Disable BstHdUpdaterSvc so an update doesn't re-lock it.")
+            return "Engine patched. Now Toggle Root per instance, then restart."
 
-        self.status_label.setText("Root patch applied - restart your instance.")
-        QMessageBox.information(
-            self, "Root Enabled",
-            "\n".join(all_results) +
-            "\n\nNext steps:\n"
-            "  1. Make sure Root is ON (Toggle Root) for the instance — that's\n"
-            "     what installs su in the guest.\n"
-            "  2. Start/restart the instance — apps can now request root.\n\n"
-            "Note: a BlueStacks auto-update will replace these files and re-lock "
-            "root; disable the BlueStacks Updater Service to keep it.")
+        self._run_async(job, "Patching BlueStacks engine...")
 
     def handle_restore_patches(self) -> None:
         """Restore HD-Player.exe + HD-MultiInstanceManager.exe from backups."""
@@ -401,20 +486,22 @@ class BluestacksRootToggle(QWidget):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
 
-        instance_handler.terminate_bluestacks()
-        QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+        total = len(install_dirs)
 
-        all_results: List[str] = []
-        for install_dir in install_dirs:
-            try:
+        def job(progress):
+            progress("Closing BlueStacks...")
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            all_results = []
+            for i, install_dir in enumerate(install_dirs, 1):
+                progress("Restoring engine %d/%d..." % (i, total))
                 all_results.extend(integrity_patch.patch_installation(install_dir, restore=True))
                 all_results.extend(root_persistence.patch_root_persistence(install_dir, restore=True))
-            except Exception as e:
-                logger.exception("Restore failed")
-                all_results.append(f"{install_dir}: ERROR - {e}")
+            for line in all_results:
+                logger.info("  %s", line)
+            return "Engine binaries restored from backup."
 
-        self.status_label.setText("Originals restored.")
-        QMessageBox.information(self, "Restored", "\n".join(all_results))
+        self._run_async(job, "Restoring BlueStacks engine...")
     def update_instance_statuses(self, preserve_selection: bool = True): self.update_instance_data(); self.update_instance_checkboxes(preserve_selection)
     def closeEvent(self, event): self.status_refresh_timer.stop(); event.accept()
 

@@ -4,3 +4,7 @@ BlueStacksRootGUI*.spec
 /dist/
 /build/
 /.venv/
+# RE / patch working dir: large copied binaries, IDA .i64 databases, backups
+/patch_work/
+*.prepatch.bak
+*.i64
