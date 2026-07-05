@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QMessageBox,
 )
-from PyQt5.QtCore import Qt, QTimer, QThread
+from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QIcon
 
 
