@@ -187,7 +187,6 @@ class BluestacksRootToggle(QWidget):
             source_id, config_path, data_path = inst["source"], inst["config_path"], inst["data_path"]
             patch_mode = inst.get("patch_mode", False)  # 5.22.150.1014+ uses the patches
             root_info = config_handler.get_complete_root_statuses(config_path)
-            global_root_on = root_info['global_status']
             instance_root_statuses = root_info['instance_statuses']
 
             disk_instances = {entry for entry in (os.listdir(data_path) if os.path.isdir(data_path) else []) if os.path.isdir(os.path.join(data_path, entry))}
@@ -212,8 +211,13 @@ class BluestacksRootToggle(QWidget):
                     # sidecar -- not the conf flag -- is the real indicator.
                     effective_root_status = su_patch_offline.instance_root_state(instance_dir_path)
                 else:
-                    # Older builds: global feature.rooting + per-instance flag.
-                    effective_root_status = global_root_on and individual_root_on
+                    # Classic builds: the per-instance enable_root_access flag is the
+                    # persistent root control (it exposes the guest `su`). Do NOT gate
+                    # status on bst.feature.rooting -- BlueStacks resets that global flag
+                    # to 0 on launch while root stays live, which would wrongly show a
+                    # rooted instance as "Off". The toggle re-sets feature.rooting when
+                    # enabling.
+                    effective_root_status = individual_root_on
 
                 all_found_instances[unique_id] = {
                     "original_name": name,
