@@ -9,6 +9,7 @@ BLUESTACKS_CONF_FILENAME = "bluestacks.conf"
 
 REGISTRY_BASE_PATH = r"SOFTWARE\BlueStacks_nxt"
 REGISTRY_MSI_BASE_PATH = r"SOFTWARE\BlueStacks_msi5"
+REGISTRY_CN_BASE_PATH = r"SOFTWARE\BlueStacks_nxt_cn"
 REGISTRY_DATA_DIR_KEY = "DataDir"
 REGISTRY_USER_DIR_KEY = "UserDefinedDir"
 # Program-files directory that holds HD-Player.exe etc. (for the integrity patch)
@@ -31,6 +32,7 @@ def parse_version(s):
 # FIX: Add constants to identify the source application
 APP_SOURCE_NXT = "NXT"
 APP_SOURCE_MSI = "MSI"
+APP_SOURCE_NXT_CN = "CN"
 
 
 MODE_READWRITE = "Normal"

@@ -13,6 +13,7 @@ def get_all_bluestacks_installations() -> List[Installation]:
     installations: List[Installation] = []
     reg_sources = {
         constants.APP_SOURCE_NXT: constants.REGISTRY_BASE_PATH,
+        constants.APP_SOURCE_NXT_CN: constants.REGISTRY_CN_BASE_PATH,
         constants.APP_SOURCE_MSI: constants.REGISTRY_MSI_BASE_PATH,
     }
 
