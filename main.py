@@ -28,6 +28,7 @@ import instance_handler
 import root_persistence
 import integrity_patch
 import su_patch_offline
+import ext4_symlink
 import admin
 
 # Log to console AND a file in the local temp dir. The file is important when
@@ -305,7 +306,14 @@ class BluestacksRootToggle(QWidget):
                     unique_id, " | ".join(results))
 
     def _toggle_root_conf(self, unique_id, progress=None):
-        """Root toggle via bluestacks.conf (enable_root_access + feature.rooting)."""
+        """Root toggle via bluestacks.conf (enable_root_access + feature.rooting).
+
+        Classic builds expose only /system/xbin/bstk/su (a root *shell*); apps
+        cannot see it because it is not on PATH. So we also add a
+        /system/xbin/su -> bstk/su symlink offline in Root.vhd for app-visible
+        root. That step is best-effort: if it fails (tools missing, no Root.vhd,
+        unexpected layout) the conf-based shell root still applies.
+        """
         if progress:
             progress("updating bluestacks.conf...")
         instance = self.instance_data[unique_id]
@@ -320,10 +328,32 @@ class BluestacksRootToggle(QWidget):
                 if uid != unique_id and d["config_path"] == config_path)
             if not any_other_rooted:
                 config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, "0")
+            self._set_classic_app_su(instance, False, progress)
         else:
             config_handler.modify_config_file(config_path, setting_key, "1")
             config_handler.modify_config_file(config_path, constants.FEATURE_ROOTING_KEY, "1")
+            self._set_classic_app_su(instance, True, progress)
         logger.info(f"Root toggle (conf) processed for {unique_id}")
+
+    def _set_classic_app_su(self, instance, turn_on, progress=None):
+        """Best-effort /system/xbin/su symlink in Root.vhd for app-visible root.
+
+        Only meaningful on classic builds whose Root.vhd ships bstk/su. Any
+        failure is logged and surfaced via progress but never fails the toggle.
+        """
+        if not ext4_symlink.tools_available():
+            logger.info("app-su: bundled e2fsprogs not present; skipping symlink")
+            return
+        try:
+            if turn_on:
+                results = ext4_symlink.add_su_symlink(instance["data_path"], progress)
+            else:
+                results = ext4_symlink.remove_su_symlink(instance["data_path"], progress)
+            logger.info("app-su %s: %s", "ON" if turn_on else "OFF", " | ".join(results))
+        except Exception as exc:  # noqa: BLE001 - never break the conf toggle
+            logger.warning("app-su symlink step failed: %s", exc)
+            if progress:
+                progress("app-root symlink skipped: %s" % exc)
 
     def _toggle_single_instance_rw(self, unique_id, progress=None):
         instance = self.instance_data[unique_id]

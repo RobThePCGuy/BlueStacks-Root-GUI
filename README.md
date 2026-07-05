@@ -73,7 +73,7 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --name BlueStacksRootGUI main.py
+pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --add-data "tools/e2fsprogs;tools/e2fsprogs" --name BlueStacksRootGUI main.py
 ```
 
 Output will be in the `dist/` folder.
@@ -204,6 +204,9 @@ This fork **adds root support for BlueStacks 5.22**, which the upstream tool cou
 - `instance_handler.py` - Modifies `.bstk` files, handles processes
 - `registry_handler.py` - Reads BlueStacks paths from Windows Registry
 - `constants.py` - Shared constants (keys, filenames, modes)
+- `integrity_patch.py` / `root_persistence.py` - Engine patches (5.22+ integrity bypass, keep root enabled)
+- `su_patch_offline.py` - Patch-mode app root: flips guest `su` `isDeveloperMode` inside `Data.vhdx`
+- `ext4_symlink.py` - Classic/MSI app root: adds `/system/xbin/su` in `Root.vhd` via bundled `debugfs` (`tools/e2fsprogs/`)
 
 ### Dependencies
 
