@@ -11,7 +11,7 @@
 A utility to toggle root access and read/write (R/W) permissions for BlueStacks 5 instances from a simple graphical interface. It automates the process described in **[Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)**.
 
 > [!TIP]
-> **The latest BlueStacks now roots — no downgrade required.** BlueStacks 5.22 added a disk-integrity check that shut rooted instances down with *"Android system doesn't meet security requirements"*. This tool patches that check out, so you can root the current build instead of hunting for an old one. Confirmed working on **5.22.232.1002 / Android 13** (see [Version Compatibility](#version-compatibility)). If you were told to downgrade to 5.21, you no longer have to.
+> **The latest BlueStacks now roots — no downgrade required.** BlueStacks 5.22 added a disk-integrity check that shut rooted instances down with *"Android system doesn't meet security requirements"*. This tool patches that check out, so you can root the current build instead of hunting for an old one. Confirmed working on **5.22.232.1002 / Android 13** — the current latest official BlueStacks build as of July 2026 (see [Version Compatibility](#version-compatibility)). If you were told to downgrade to 5.21, you no longer have to.
 
 ---
 
@@ -22,7 +22,7 @@ A utility to toggle root access and read/write (R/W) permissions for BlueStacks 
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Usage Guide](#usage-guide)
-  - [Patch-Mode Builds (5.22.150.1014+)](#patch-mode-builds-52215010141)
+  - [Patch-Mode Builds (5.22.150.1014+)](#patch-mode-builds-5221501014)
   - [Classic Builds (5.22.130 and older / MSI)](#classic-builds-522130-and-older--msi)
   - [Keep Root After Updates](#keep-root-after-updates)
 - [Troubleshooting](#troubleshooting)
@@ -189,6 +189,7 @@ schtasks /Change /TN "BlueStacksHelper_nxt" /DISABLE
 
 </details>
 
+<a id="how-to-downgrade-to-521-legacy"></a>
 <details>
 <summary><b>How to Downgrade to 5.21 (legacy)</b></summary>
 
