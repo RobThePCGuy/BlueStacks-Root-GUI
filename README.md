@@ -34,8 +34,9 @@ A utility to toggle root access and read/write (R/W) permissions for BlueStacks 
 ## Features
 
 - **Auto-Detection** - Discovers BlueStacks installation paths via the Windows Registry (Normal, China, and MSI editions) and picks the right rooting method per version automatically
-- **Instance Listing** - Reads `bluestacks.conf` to display all configured instances with live Root and R/W status
-- **Root Toggle** - Enables root the right way for your build: the `enable_root_access` / `bst.feature.rooting` flags on classic builds, plus an offline guest-`su` patch on 5.22.150.1014+
+- **Instance Listing** - Lists every instance with live Root and R/W status, including newer instances that use a single `Data.vhdx` layout (created or cloned) — not just the classic `fastboot.vdi`/`Root.vhd` ones
+- **Engine-Patch Status** - Shows at a glance whether the engine is already patched (*"Engine: Patched ✓"*), so you never have to guess — it's per-install and applies to every instance
+- **Root Toggle** - Enables root the right way for your build: the `enable_root_access` / `bst.feature.rooting` flags on classic builds, plus an offline guest-`su` patch on 5.22.150.1014+. Prompts you to boot a fresh instance once if its `su` isn't generated yet
 - **Engine Patch (5.22+)** - Patches `HD-Player.exe` to disable the *"doesn't meet security"* integrity shutdown, and `HD-MultiInstanceManager.exe` so root isn't reset back off when you edit instances
 - **Read/Write Toggle** - Switches disk files (`fastboot.vdi`, `Root.vhd`) between `Normal` and `Readonly`
 - **Reversible** - Every binary patch backs up to a `.prepatch.bak`; every guest-`su` patch records the original bytes. "Undo Engine Patch" and toggling root off restore the originals
@@ -95,6 +96,9 @@ pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;."
 
 Output will be in the `dist/` folder.
 
+> [!NOTE]
+> You normally don't need to build by hand — pushing a version tag (`v*`) triggers the `release.yml` workflow, which builds this exact executable on a Windows runner and publishes it to **[Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases)** automatically.
+
 ## Usage Guide
 
 Launch the GUI **as administrator**. It auto-detects your BlueStacks installation, lists your instances, and shows the engine-patch buttons only when a patch-mode build (5.22.150.1014+) is present. Follow the section that matches your version.
@@ -109,7 +113,7 @@ This is the path for current BlueStacks. You get root for apps without touching 
 4. **Restart the instance** - start it from BlueStacks. It should boot with **no** security/tamper popup, and root-checker apps (or Kitsune Mask / Magisk) will see root.
 
 > [!TIP]
-> Want Kitsune Mask / Magisk modules too? You can still install them — enable **R/W**, install the APK, and follow the [Kitsune steps](#classic-builds-522130-and-older--msi) below. It's optional on patch-mode builds since apps already have root.
+> This gets **apps** working root — enough for most root-requiring apps and root checkers. If you want **Magisk/Kitsune-managed root with modules and hiding** (Zygisk, Play Integrity Fix, LSPosed, etc.), that's a separate, more involved setup with real emulator gotchas (Zygisk injection, competing-`su` conflicts, modules that hang boot). It's documented in the companion guide: **[Root BlueStacks with Kitsune Mask → Magisk Modules & Hiding](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask#magisk-modules--hiding-advanced)**.
 
 ### Classic Builds (5.22.130 and older / MSI)
 
