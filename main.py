@@ -1,9 +1,11 @@
 """Qt5-based GUI application for toggling BlueStacks root access."""
+from __future__ import annotations
+
 import sys
 import os
 import logging
 import tempfile
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -81,14 +83,13 @@ class BluestacksRootToggle(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.installations: List[registry_handler.Installation] = []
-        self.instance_data: Dict[str, Dict[str, Any]] = {}
-        self.instance_checkboxes: Dict[str, Dict[str, Any]] = {}
-        self.is_toggling: bool = False
+        self.installations: list[registry_handler.Installation] = []
+        self.instance_data: dict[str, dict[str, Any]] = {}
+        self.instance_checkboxes: dict[str, dict[str, Any]] = {}
 
         # Queued (cross-thread) so background jobs can pop a dialog safely.
         self.show_notice.connect(self._show_notice)
-        self.setWindowTitle(constants.APP_NAME)
+        self.setWindowTitle(f"{constants.APP_NAME} v{constants.APP_VERSION}")
         self._set_icon()
         self.status_refresh_timer = QTimer(self)
         self.status_refresh_timer.timeout.connect(
@@ -216,7 +217,7 @@ class BluestacksRootToggle(QWidget):
     def update_instance_data(self) -> None:
         if not self.installations: return
 
-        all_found_instances: Dict[str, Dict[str, Any]] = {}
+        all_found_instances: dict[str, dict[str, Any]] = {}
         for inst in self.installations:
             source_id, config_path, data_path = inst["source"], inst["config_path"], inst["data_path"]
             patch_mode = inst.get("patch_mode", False)  # 5.22.150.1014+ uses the patches
@@ -485,7 +486,7 @@ class BluestacksRootToggle(QWidget):
         self._op_thread = None
 
     # ---- Engine patch (5.22.150.1014+) ------------------------------------
-    def _install_dirs_or_warn(self) -> Optional[List[str]]:
+    def _install_dirs_or_warn(self) -> list[str] | None:
         """Return BlueStacks install dirs, after ensuring admin rights.
 
         Returns None (and shows the appropriate dialog) if not elevated or no

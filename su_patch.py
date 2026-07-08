@@ -39,7 +39,6 @@ import os
 import shutil
 import struct
 import sys
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ PATCH = bytes([0xB0, 0x01, 0xC3])
 PROLOGUE = bytes([0x53, 0x48, 0x8D])  # push rbx ; lea rdi, ... (observed prologue)
 
 
-def _elf_segments(data: bytes) -> Tuple[bool, List[Tuple[int, int, int]]]:
+def _elf_segments(data: bytes) -> tuple[bool, list[tuple[int, int, int]]]:
     """Return (is64, [(p_vaddr, p_offset, p_filesz)]) for PT_LOAD segments."""
     if data[:4] != b"\x7fELF":
         raise ValueError("not an ELF")
@@ -84,21 +83,13 @@ def _elf_segments(data: bytes) -> Tuple[bool, List[Tuple[int, int, int]]]:
     return is64, segs
 
 
-def _off_to_vaddr(segs, off: int) -> Optional[int]:
+def _off_to_vaddr(segs, off: int) -> int | None:
     for vaddr, foff, fsz in segs:
         if foff <= off < foff + fsz:
             return vaddr + (off - foff)
     return None
 
-
-def _vaddr_to_off(segs, vaddr: int) -> Optional[int]:
-    for v, foff, fsz in segs:
-        if v <= vaddr < v + fsz:
-            return foff + (vaddr - v)
-    return None
-
-
-def _find_isdevmode_entry(data: bytes) -> Optional[int]:
+def _find_isdevmode_entry(data: bytes) -> int | None:
     """File offset of the isDeveloperMode() entry, or None."""
     s = data.find(DEVMODE_STRING)
     if s < 0:
