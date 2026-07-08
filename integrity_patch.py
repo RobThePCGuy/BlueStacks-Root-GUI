@@ -47,7 +47,7 @@ import shutil
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +83,12 @@ class PatchSpec:
     patch_offset: int
     expect_bytes: bytes
     patch_bytes: bytes
-    signature: Optional[List[Optional[int]]] = None
-    locator: Optional[Callable[[bytes], List[int]]] = None
+    signature: list[int | None] | None = None
+    locator: Callable[[bytes], list[int]] | None = None
 
 
 # --- Minimal PE helpers (for locators that must resolve RIP-relative refs) ---
-def pe_image_base_and_sections(data: bytes) -> Tuple[int, List[Tuple[int, int, int, int]]]:
+def pe_image_base_and_sections(data: bytes) -> tuple[int, list[tuple[int, int, int, int]]]:
     """Parse just enough PE to map file offsets <-> RVAs.
 
     Returns ``(image_base, sections)`` where each section is
@@ -116,7 +116,7 @@ def pe_image_base_and_sections(data: bytes) -> Tuple[int, List[Tuple[int, int, i
     return image_base, sections
 
 
-def file_offset_to_rva(sections, foff: int) -> Optional[int]:
+def file_offset_to_rva(sections, foff: int) -> int | None:
     """Map a raw file offset to its RVA, or None if outside any raw section."""
     for va, _vsize, praw, sraw in sections:
         if praw <= foff < praw + sraw:
@@ -141,9 +141,9 @@ DISK_INTEGRITY_CALL = PatchSpec(
 )
 
 
-def _find_signature(data: bytes, sig: List[Optional[int]]) -> List[int]:
+def _find_signature(data: bytes, sig: list[int | None]) -> list[int]:
     """Return every start offset in ``data`` matching ``sig`` (None = wildcard)."""
-    hits: List[int] = []
+    hits: list[int] = []
     first = sig[0]
     assert first is not None, "signature must start with a concrete byte"
     n = len(sig)
@@ -165,7 +165,7 @@ _ISDVR_PROLOGUE = bytes([0x48, 0x89, 0x5C, 0x24, 0x08,
                          0x48, 0x89, 0x7C, 0x24, 0x18])
 
 
-def _locate_isdiskverify(data: bytes) -> List[int]:
+def _locate_isdiskverify(data: bytes) -> list[int]:
     """Locate _isDiskVerificationRequired() via its 'unlock_player.bin' reference.
 
     That function reads the signed unlock file and returns 0 only when a valid
@@ -251,7 +251,7 @@ def _apply_to_buffer(data: bytearray, spec: PatchSpec) -> str:
     return f"patched at 0x{at:X}: {current.hex(' ')} -> {spec.patch_bytes.hex(' ')}"
 
 
-def patch_file(path: str, specs: List[PatchSpec] = (DISK_INTEGRITY_CALL,),
+def patch_file(path: str, specs: list[PatchSpec] = (DISK_INTEGRITY_CALL,),
                make_backup: bool = True) -> bool:
     """Patch a single executable. Returns True if any change was written."""
     with open(path, "rb") as fh:
@@ -338,7 +338,7 @@ def restore_file(path: str) -> bool:
     return True
 
 
-def is_file_patched(path: str, spec: PatchSpec) -> Optional[bool]:
+def is_file_patched(path: str, spec: PatchSpec) -> bool | None:
     """Return True/False if ``spec`` is/ isn't applied to the binary at ``path``.
 
     Returns None when the state is indeterminate (file missing/unreadable, or the
@@ -356,7 +356,7 @@ def is_file_patched(path: str, spec: PatchSpec) -> Optional[bool]:
     return bytes(data[at:at + len(spec.patch_bytes)]) == spec.patch_bytes
 
 
-def installation_patched(install_dir: str) -> Optional[bool]:
+def installation_patched(install_dir: str) -> bool | None:
     """Whether this install's engine is currently patched.
 
     True if ``HD-Player.exe`` carries the unlock patch, False if it doesn't, None
@@ -369,12 +369,12 @@ def installation_patched(install_dir: str) -> Optional[bool]:
     return is_file_patched(path, UNLOCK_PLAYER)
 
 
-def patch_installation(install_dir: str, restore: bool = False) -> List[str]:
+def patch_installation(install_dir: str, restore: bool = False) -> list[str]:
     """Patch (or restore) every candidate binary found in ``install_dir``.
 
     Returns a list of status lines for display in a UI/log.
     """
-    results: List[str] = []
+    results: list[str] = []
     for name in CANDIDATE_BINARIES:
         path = os.path.join(install_dir, name)
         if not os.path.isfile(path):
@@ -398,7 +398,7 @@ def patch_installation(install_dir: str, restore: bool = False) -> List[str]:
     return results
 
 
-def _main(argv: Optional[List[str]] = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("install_dir",

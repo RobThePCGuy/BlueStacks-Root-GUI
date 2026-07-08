@@ -34,7 +34,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import List, Optional
 
 import su_patch_offline  # reuse its dynamic-VHD reader for the MBR probe
 
@@ -69,7 +68,7 @@ def tools_available() -> bool:
     return os.path.isfile(_debugfs()) and os.path.isfile(_e2fsck())
 
 
-def _run(args: List[str], env: Optional[dict] = None) -> subprocess.CompletedProcess:
+def _run(args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True,
                           creationflags=_NO_WINDOW, env=env)
 
@@ -128,7 +127,7 @@ def _detach(vhd_path: str) -> None:
     _diskpart('select vdisk file="%s"\ndetach vdisk\n' % vhd_path)
 
 
-def _disk_number(vhd_path: str) -> Optional[int]:
+def _disk_number(vhd_path: str) -> int | None:
     """OS disk number of the attached VHD (== PhysicalDriveN index)."""
     r = _run(["powershell", "-NoProfile", "-Command",
               "(Get-Disk | Where-Object { $_.Location -eq '%s' }).Number" % vhd_path])
@@ -142,7 +141,7 @@ def _cyg_device(disk_number: int, offset: int) -> str:
     return "/dev/sd%s?offset=%d" % (chr(ord("a") + disk_number), offset)
 
 
-def _find_xbin(device: str, env: dict) -> Optional[str]:
+def _find_xbin(device: str, env: dict) -> str | None:
     """Return the xbin dir (from _XBIN_CANDIDATES) that holds bstk/su, or None."""
     for xbin in _XBIN_CANDIDATES:
         r = _run([_debugfs(), "-R", "stat %s/bstk/su" % xbin, device], env=env)
@@ -167,9 +166,9 @@ class _Attached:
     def __init__(self, vhd_path: str):
         self.vhd = vhd_path
         self.offset = _partition_offset(vhd_path)
-        self.device: Optional[str] = None
+        self.device: str | None = None
 
-    def __enter__(self) -> "_Attached":
+    def __enter__(self) -> _Attached:
         _attach(self.vhd)
         time.sleep(1.5)  # let Windows enumerate the disk
         num = _disk_number(self.vhd)
@@ -182,21 +181,7 @@ class _Attached:
     def __exit__(self, *exc) -> None:
         _detach(self.vhd)
 
-
-def has_su_symlink(instance_dir: str) -> bool:
-    """True if ``/system/xbin/su`` already exists in this instance's Root.vhd."""
-    vhd = _root_vhd(instance_dir)
-    if not (tools_available() and os.path.isfile(vhd)):
-        return False
-    env = _tool_env()
-    with _Attached(vhd) as att:
-        xbin = _find_xbin(att.device, env)
-        if not xbin:
-            return False
-        return "Type: symlink" in _stat_su(att.device, xbin, env)
-
-
-def add_su_symlink(instance_dir: str, progress=None) -> List[str]:
+def add_su_symlink(instance_dir: str, progress=None) -> list[str]:
     """Create ``/system/xbin/su -> bstk/su`` in a shut-down instance's Root.vhd.
 
     Idempotent; returns human-readable status lines.  Raises on hard failure
@@ -214,7 +199,7 @@ def add_su_symlink(instance_dir: str, progress=None) -> List[str]:
         raise RuntimeError("Root.vhd not found in %s" % instance_dir)
 
     env = _tool_env()
-    results: List[str] = []
+    results: list[str] = []
     _p("Attaching Root.vhd (app-root symlink)...")
     with _Attached(vhd) as att:
         dev = att.device
@@ -226,10 +211,10 @@ def add_su_symlink(instance_dir: str, progress=None) -> List[str]:
             results.append("%s/su already present" % xbin)
             return results
         _p("Creating %s/su -> %s..." % (xbin, _LINK_TARGET))
-        cmds = ("symlink {x}/{n} {t}\n"
-                "sif {x}/{n} uid 0\n"
-                "sif {x}/{n} gid 0\n"
-                "quit\n").format(x=xbin, n=_LINK_NAME, t=_LINK_TARGET)
+        cmds = (f"symlink {xbin}/{_LINK_NAME} {_LINK_TARGET}\n"
+                f"sif {xbin}/{_LINK_NAME} uid 0\n"
+                f"sif {xbin}/{_LINK_NAME} gid 0\n"
+                "quit\n")
         fd, cf = tempfile.mkstemp(suffix=".txt")
         try:
             with os.fdopen(fd, "w") as f:
@@ -249,7 +234,7 @@ def add_su_symlink(instance_dir: str, progress=None) -> List[str]:
     return results
 
 
-def remove_su_symlink(instance_dir: str, progress=None) -> List[str]:
+def remove_su_symlink(instance_dir: str, progress=None) -> list[str]:
     """Remove the injected ``/system/xbin/su`` symlink (if present)."""
     def _p(msg: str) -> None:
         logger.info(msg)
@@ -260,7 +245,7 @@ def remove_su_symlink(instance_dir: str, progress=None) -> List[str]:
     if not tools_available() or not os.path.isfile(vhd):
         return ["e2fsprogs/Root.vhd unavailable -- nothing to remove"]
     env = _tool_env()
-    results: List[str] = []
+    results: list[str] = []
     _p("Attaching Root.vhd (remove app-root symlink)...")
     with _Attached(vhd) as att:
         dev = att.device

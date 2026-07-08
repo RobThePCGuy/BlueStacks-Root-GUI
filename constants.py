@@ -1,4 +1,6 @@
 """Application constants."""
+from __future__ import annotations
+
 import re
 
 INSTANCE_PREFIX = "bst.instance."
@@ -89,6 +91,7 @@ PROCESS_KILL_TIMEOUT_S = 5
 PROCESS_POST_KILL_WAIT_S = 2
 
 
-APP_ID = "RobThePCGuy.BlueStacksRootGUI.2.6"
+APP_VERSION = "3.0.0"
+APP_ID = f"RobThePCGuy.BlueStacksRootGUI.{APP_VERSION}"
 APP_NAME = "BlueStacks Root GUI"
 ICON_FILENAME = "favicon.ico"

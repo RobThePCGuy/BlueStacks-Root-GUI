@@ -26,7 +26,6 @@ import logging
 import os
 import struct
 import sys
-from typing import Dict, List, Optional, Tuple
 
 import su_patch  # DEVMODE_STRING, PATCH, _find_isdevmode_entry
 
@@ -92,7 +91,7 @@ class DynamicVHD:
     def is_present(self, blk: int) -> bool:
         return 0 <= blk < self.max_entries and self.bat[blk] != BAT_UNUSED
 
-    def _phys(self, flat: int) -> Optional[int]:
+    def _phys(self, flat: int) -> int | None:
         blk = flat // self.block_size
         if blk >= self.max_entries or self.bat[blk] == BAT_UNUSED:
             return None
@@ -116,9 +115,9 @@ class DynamicVHD:
     def write(self, flat: int, data: bytes) -> None:
         phys = self._phys(flat)
         if phys is None:
-            raise IOError("flat 0x%X not allocated" % flat)
+            raise OSError("flat 0x%X not allocated" % flat)
         if (flat % self.block_size) + len(data) > self.block_size:
-            raise IOError("write crosses block boundary")
+            raise OSError("write crosses block boundary")
         self.f.seek(phys)
         self.f.write(data)
 
@@ -145,7 +144,7 @@ class DynamicVHDX:
         if rhdr[:4] != b"regi":
             raise ValueError("bad VHDX region table")
         entry_count = struct.unpack_from("<I", rhdr, 8)[0]
-        regions: Dict[bytes, int] = {}
+        regions: dict[bytes, int] = {}
         for _ in range(entry_count):
             e = self.f.read(32)
             regions[e[:16]] = struct.unpack_from("<Q", e, 16)[0]
@@ -159,7 +158,7 @@ class DynamicVHDX:
         if mhdr[:8] != b"metadata":
             raise ValueError("bad VHDX metadata table")
         md_count = struct.unpack_from("<H", mhdr, 10)[0]
-        items: Dict[bytes, int] = {}
+        items: dict[bytes, int] = {}
         for _ in range(md_count):
             me = self.f.read(32)
             items[me[:16]] = struct.unpack_from("<I", me, 16)[0]  # offset in region
@@ -179,7 +178,7 @@ class DynamicVHDX:
         self.max_entries = (virtual_size + self.block_size - 1) // self.block_size
         # Payload BAT: every ``chunk_ratio`` payload entries are followed by one
         # sector-bitmap entry, so payload block N is BAT index N + N//chunk_ratio.
-        self._phys_off: List[Optional[int]] = []
+        self._phys_off: list[int | None] = []
         for blk in range(self.max_entries):
             idx = blk + blk // chunk_ratio
             self.f.seek(bat_off + idx * 8)
@@ -192,7 +191,7 @@ class DynamicVHDX:
     def is_present(self, blk: int) -> bool:
         return 0 <= blk < self.max_entries and self._phys_off[blk] is not None
 
-    def _phys(self, flat: int) -> Optional[int]:
+    def _phys(self, flat: int) -> int | None:
         blk = flat // self.block_size
         if not self.is_present(blk):
             return None
@@ -216,9 +215,9 @@ class DynamicVHDX:
     def write(self, flat: int, data: bytes) -> None:
         phys = self._phys(flat)
         if phys is None:
-            raise IOError("flat 0x%X not allocated" % flat)
+            raise OSError("flat 0x%X not allocated" % flat)
         if (flat % self.block_size) + len(data) > self.block_size:
-            raise IOError("write crosses block boundary")
+            raise OSError("write crosses block boundary")
         self.f.seek(phys)
         self.f.write(data)
 
@@ -235,7 +234,7 @@ def open_disk(path: str, writable: bool = False):
     return DynamicVHD(path, writable=writable)
 
 
-def _elf_size(hdr: bytes) -> Optional[int]:
+def _elf_size(hdr: bytes) -> int | None:
     """Total file size of the ELF whose header starts at hdr[0], or None."""
     if hdr[:4] != b"\x7fELF":
         return None
@@ -258,13 +257,13 @@ def _elf_size(hdr: bytes) -> Optional[int]:
 # string with the function. Each pattern starts AT the entry (first 3 bytes get
 # the b0 01 c3 patch). The build-specific rel32 keeps it unique. Derived from the
 # installer su binaries; None = wildcard.
-_FALLBACK_SIGS: List[List[Optional[int]]] = [
+_FALLBACK_SIGS: list[list[int | None]] = [
     # A9 (Android 9) static-64: push rbx; lea rdi,[rip+0xE66A8 -> isDevStr]; xor eax,eax; call
     [0x53, 0x48, 0x8D, 0x3D, 0xA8, 0x66, 0x0E, 0x00, 0x31, 0xC0, 0xE8],
 ]
 
 
-def _match_sig(hay: bytes, sig: List[Optional[int]], start: int) -> int:
+def _match_sig(hay: bytes, sig: list[int | None], start: int) -> int:
     n = len(sig)
     i = start
     first = sig[0]
@@ -342,7 +341,7 @@ def _classify_elf_su(elf: bytes, marker: bytes):
     return None
 
 
-def _scan_su_entries(vhd, pct=None) -> List[Tuple[int, bool, bool]]:
+def _scan_su_entries(vhd, pct=None) -> list[tuple[int, bool, bool]]:
     """Every gated su's isDeveloperMode entry as (flat_off, patched, is64).
 
     String-driven: locate each "isDeveloperMode" string, find the owning ELF, and
@@ -352,7 +351,7 @@ def _scan_su_entries(vhd, pct=None) -> List[Tuple[int, bool, bool]]:
     ext4 file is fragmented (string and function land far apart on disk).
     """
     marker = su_patch.DEVMODE_STRING
-    found: Dict[int, Tuple[bool, bool]] = {}      # flat_off -> (patched, is64)
+    found: dict[int, tuple[bool, bool]] = {}      # flat_off -> (patched, is64)
     seen_elf = set()
     prev_tail = b""
     tail_len = max(len(marker), max((len(s) for s in _FALLBACK_SIGS), default=0)) + 8
@@ -415,7 +414,7 @@ def _scan_su_entries(vhd, pct=None) -> List[Tuple[int, bool, bool]]:
     return sorted((off, p, a) for off, (p, a) in found.items())
 
 
-def _find_su_entries(vhd, pct=None) -> List[int]:
+def _find_su_entries(vhd, pct=None) -> list[int]:
     """Compat wrapper: flat offsets of UN-patched su entries (for dry-run)."""
     return [off for off, patched, _is64 in _scan_su_entries(vhd, pct) if not patched]
 
@@ -424,7 +423,7 @@ def _sidecar(vhd_path: str) -> str:
     return vhd_path + ".suroot.json"
 
 
-def enable(vhd_path: str, progress=None) -> List[str]:
+def enable(vhd_path: str, progress=None) -> list[str]:
     """Patch every gated su to grant app root; back up originals to the sidecar.
 
     ``progress`` (optional) is called with a status string for each step.
@@ -434,8 +433,8 @@ def enable(vhd_path: str, progress=None) -> List[str]:
         if progress:
             progress(msg)
 
-    results: List[str] = []
-    merged: Dict[int, str] = {}
+    results: list[str] = []
+    merged: dict[int, str] = {}
     sc = _sidecar(vhd_path)
     if os.path.isfile(sc):
         for p in json.load(open(sc)).get("patches", []):
@@ -485,7 +484,7 @@ def enable(vhd_path: str, progress=None) -> List[str]:
     return results
 
 
-def disable(vhd_path: str, progress=None) -> List[str]:
+def disable(vhd_path: str, progress=None) -> list[str]:
     """Restore original su bytes from the sidecar (un-root)."""
     def _p(msg):
         logger.info(msg)
@@ -496,7 +495,7 @@ def disable(vhd_path: str, progress=None) -> List[str]:
     if not os.path.isfile(sc):
         return ["no backup sidecar -- nothing to restore"]
     patches = json.load(open(sc)).get("patches", [])
-    results: List[str] = []
+    results: list[str] = []
     _p("Opening %s" % os.path.basename(vhd_path))
     vhd = open_disk(vhd_path, writable=True)
     try:
@@ -519,7 +518,7 @@ def disable(vhd_path: str, progress=None) -> List[str]:
     return results
 
 
-def _su_disk(instance_dir: str) -> Optional[str]:
+def _su_disk(instance_dir: str) -> str | None:
     """Disk that holds the live /system/xbin/su on 5.22.150.1014+ -- the writable
     Data.vhdx (bind-mounted rw at /system/xbin). su only appears here after the
     instance's first boot. Falls back to the legacy Root.vhd if Data.vhdx is
@@ -538,7 +537,7 @@ def instance_root_state(instance_dir: str) -> bool:
     return bool(vhd and os.path.isfile(_sidecar(vhd)))
 
 
-def set_instance_root(instance_dir: str, on: bool, progress=None) -> List[str]:
+def set_instance_root(instance_dir: str, on: bool, progress=None) -> list[str]:
     """Root (patch su + back up) or un-root (restore su) a single instance.
 
     The instance must be shut down. Returns human-readable status lines.
@@ -550,8 +549,8 @@ def set_instance_root(instance_dir: str, on: bool, progress=None) -> List[str]:
     return enable(vhd, progress) if on else disable(vhd, progress)
 
 
-def _collect(targets: List[str], all_instances: bool) -> List[str]:
-    vhds: List[str] = []
+def _collect(targets: list[str], all_instances: bool) -> list[str]:
+    vhds: list[str] = []
     if all_instances or not targets:
         if os.path.isdir(ENGINE_DIR):
             for n in sorted(os.listdir(ENGINE_DIR)):
@@ -574,7 +573,7 @@ def _collect(targets: List[str], all_instances: bool) -> List[str]:
     return list(dict.fromkeys(vhds))
 
 
-def run(targets: List[str], action: str, all_instances: bool) -> List[Tuple[str, List[str]]]:
+def run(targets: list[str], action: str, all_instances: bool) -> list[tuple[str, list[str]]]:
     out = []
     for v in _collect(targets, all_instances):
         try:

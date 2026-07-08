@@ -1,8 +1,10 @@
 """Configuration file handling utilities."""
+from __future__ import annotations
+
 import os
 import logging
 import re
-from typing import Dict, Any
+from typing import Any
 
 
 import constants
@@ -26,11 +28,11 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
     new_line_content = f'{setting}="{new_value}"'
     lines = []
     try:
-        with open(config_path, "r", encoding="utf-8") as file:
+        with open(config_path, encoding="utf-8") as file:
             lines = file.readlines()
     except Exception as e:
         logger.exception(f"Error reading configuration file {config_path}")
-        raise IOError(f"Error reading configuration file {config_path}: {e}") from e
+        raise OSError(f"Error reading configuration file {config_path}: {e}") from e
 
     updated_lines = []
     setting_found_and_updated = False
@@ -74,14 +76,14 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
             logger.debug(f"Successfully wrote changes to {config_path}")
         except Exception as e:
             logger.exception(f"Error writing updated configuration file {config_path}")
-            raise IOError(
+            raise OSError(
                 f"Error writing updated configuration file {config_path}: {e}"
             ) from e
 
     return changed
 
 
-def get_complete_root_statuses(config_path: str) -> Dict[str, Any]:
+def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
     """
     Reads a config file and returns all instance root statuses AND the global rooting feature status.
 
@@ -91,7 +93,7 @@ def get_complete_root_statuses(config_path: str) -> Dict[str, Any]:
     Returns:
         A dictionary like: {'global_status': bool, 'instance_statuses': {name: bool}}
     """
-    instance_statuses: Dict[str, bool] = {}
+    instance_statuses: dict[str, bool] = {}
     global_status: bool = False
 
     if not os.path.isfile(config_path):
@@ -114,15 +116,15 @@ def get_complete_root_statuses(config_path: str) -> Dict[str, Any]:
     )
 
     try:
-        with open(config_path, "r", encoding="utf-8") as file:
+        with open(config_path, encoding="utf-8") as file:
             for line in file:
                 stripped_line = line.strip()
-                
+
                 # Check for global key
                 if global_pattern.match(stripped_line):
                     global_status = True
                     logger.debug(f"Found global root status in {config_path}: Enabled")
-                
+
                 # Check for instance key
                 match = instance_pattern.match(stripped_line)
                 if match:

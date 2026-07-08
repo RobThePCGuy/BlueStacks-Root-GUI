@@ -73,21 +73,6 @@ def to_accessible_path(path: str) -> str:
             logger.debug("Drive-type check failed for %s", drive, exc_info=True)
     return abspath
 
-
-def is_network_path(path: str) -> bool:
-    """True if ``path`` resolves to a UNC path or a mapped network drive."""
-    abspath = os.path.abspath(path)
-    if abspath.startswith("\\\\"):
-        return True
-    drive, _ = os.path.splitdrive(abspath)
-    if len(drive) == 2 and drive[1] == ":":
-        try:
-            return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4
-        except Exception:  # noqa: BLE001
-            return False
-    return False
-
-
 def relaunch_as_admin() -> bool:
     """Relaunch the current program elevated via a UAC prompt.
 

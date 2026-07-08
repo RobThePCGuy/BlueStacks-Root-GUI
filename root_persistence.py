@@ -28,7 +28,7 @@ import logging
 import os
 import struct
 from ctypes import wintypes
-from typing import Iterator, List
+from typing import Iterator
 
 import integrity_patch
 
@@ -139,7 +139,7 @@ _ROOT_WRITE_SHAPE = [0x4C, 0x8D, 0x05, None, None, None, None,  # lea r8, <strin
 _ROOT_WRITE_CALL_OFFSET = 28                                     # the E8 to NOP
 
 
-def _locate_enable_root_write(data: bytes) -> List[int]:
+def _locate_enable_root_write(data: bytes) -> list[int]:
     """Find the lea that loads ".enable_root_access" and feeds the write call."""
     try:
         image_base, sections = integrity_patch.pe_image_base_and_sections(data)
@@ -153,7 +153,7 @@ def _locate_enable_root_write(data: bytes) -> List[int]:
         return []
     str_va = image_base + str_rva
 
-    hits: List[int] = []
+    hits: list[int] = []
     for cand in integrity_patch._find_signature(bytearray(data), _ROOT_WRITE_SHAPE):
         lea_rva = integrity_patch.file_offset_to_rva(sections, cand)
         if lea_rva is None:
@@ -174,7 +174,7 @@ ROOT_RESET_NOP = integrity_patch.PatchSpec(
 )
 
 
-def patch_root_persistence(install_dir: str, restore: bool = False) -> List[str]:
+def patch_root_persistence(install_dir: str, restore: bool = False) -> list[str]:
     """Binary alternative to the read-only lock.
 
     Patches ``HD-MultiInstanceManager.exe`` so it no longer resets
