@@ -76,6 +76,9 @@ class _OpWorker(QObject):
 class BluestacksRootToggle(QWidget):
     """Main application window for toggling BlueStacks root and R/W settings."""
 
+    # Emitted from the worker thread to surface a modal notice on the UI thread.
+    show_notice = pyqtSignal(str, str)  # (title, message)
+
     def __init__(self):
         super().__init__()
         self.installations: List[registry_handler.Installation] = []
@@ -83,6 +86,8 @@ class BluestacksRootToggle(QWidget):
         self.instance_checkboxes: Dict[str, Dict[str, Any]] = {}
         self.is_toggling: bool = False
 
+        # Queued (cross-thread) so background jobs can pop a dialog safely.
+        self.show_notice.connect(self._show_notice)
         self.setWindowTitle(constants.APP_NAME)
         self._set_icon()
         self.status_refresh_timer = QTimer(self)
@@ -323,6 +328,17 @@ class BluestacksRootToggle(QWidget):
             if progress:
                 progress("Part 2/2: patching guest su in Data.vhdx...")
             results = su_patch_offline.set_instance_root(instance["data_path"], True, progress)
+            # If no guest su was patched (sidecar not written), Android hasn't
+            # generated su yet -- the instance must be booted once first. This is
+            # easy to miss in the status bar, so tell the user with a dialog.
+            if not su_patch_offline.instance_root_state(instance["data_path"]):
+                self.show_notice.emit(
+                    "Boot this instance once first",
+                    "%s hasn't generated its root files yet, so there was nothing "
+                    "to patch.\n\nStart this instance in BlueStacks, let it fully "
+                    "reach the home screen, then close it completely and click "
+                    "\"Toggle Root\" again." % unique_id,
+                )
         else:
             if progress:
                 progress("Part 1/2: restoring guest su in Data.vhdx...")
@@ -446,6 +462,11 @@ class BluestacksRootToggle(QWidget):
 
     def _on_async_progress(self, msg):
         self.status_label.setText(msg)
+
+    @pyqtSlot(str, str)
+    def _show_notice(self, title, message):
+        """Show a modal info dialog. Runs on the UI thread via a queued signal."""
+        QMessageBox.information(self, title, message)
 
     def _on_async_done(self, ok, summary):
         self._set_busy(False)
