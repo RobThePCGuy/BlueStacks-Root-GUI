@@ -29,7 +29,7 @@ A utility designed to easily toggle root access and enable read/write (R/W) perm
 
 ## Features
 
-- **Auto-Detection** - Discovers BlueStacks installation paths via Windows Registry
+- **Auto-Detection** - Discovers BlueStacks installation paths via Windows Registry (Normal, China, and MSI editions)
 - **Instance Listing** - Reads `bluestacks.conf` to display all configured instances
 - **Root Toggle** - Modifies `bst.instance.<name>.enable_root_access` and `bst.feature.rooting`
 - **Read/Write Toggle** - Changes disk file attributes (`fastboot.vdi`, `Root.vhd`) between `Normal` and `Readonly`
@@ -73,7 +73,7 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --name BlueStacksRootGUI main.py
+pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --add-data "tools/e2fsprogs;tools/e2fsprogs" --name BlueStacksRootGUI main.py
 ```
 
 Output will be in the `dist/` folder.
@@ -118,17 +118,34 @@ Output will be in the `dist/` folder.
 
 ### Version Compatibility
 
+This fork **adds root support for BlueStacks 5.22**, which the upstream tool could not root. On 5.22 builds that enforce the integrity / disk-verification check, the GUI patches the engine (`HD-Player.exe`) to disable the *"Android system doesn't meet security"* tamper shutdown; on **5.22.150.1014+** it also patches the guest `su` inside each instance's `Data.vhdx`.
+
 | BlueStacks Version | Root Working? | Notes |
 |-------------------|---------------|-------|
-| 5.20.x | Yes | Fully compatible |
-| 5.21.x | Yes | Last confirmed working version |
-| 5.22.0.1102+ | No | Play Integrity enforcement blocks root |
+| 5.20.x - 5.21.x | Yes | Classic `enable_root_access` rooting |
+| 5.22.x (pre-5.22.150.1014) | Yes | Classic rooting; engine integrity patch clears the security popup |
+| 5.22.150.1014+ | Yes | Patch mode: engine patch + `Data.vhdx` guest-`su` patch |
 
-**Issue:** BlueStacks 5.22+ (October 2025) shows *"Android system doesn't meet security"* popup when root/R/W is enabled.
+**Verified rooted** - every instance reports `uid=0` after toggling root:
 
-**Cause:** Google replaced SafetyNet with Play Integrity API in January 2025. BlueStacks 5.22 now enforces integrity checks that detect system modifications.
+| Edition | Registry key | Version | Mode | Android versions verified |
+|---------|--------------|---------|------|---------------------------|
+| Normal | `BlueStacks_nxt` | 5.22.232.1002 | patch | 7 (32/64-bit), 9, 11, 13 |
+| China | `BlueStacks_nxt_cn` | 5.22.170.6509 | patch | 7 (32/64-bit), 9, 11, 13 |
+| MSI | `BlueStacks_msi5` | 5.22.75.6322 | classic | 7 (32/64-bit), 9, 11, 13 |
 
-**Solution:** Downgrade to BlueStacks 5.21
+> **Note:** On classic / MSI builds the guest `su` is exposed at `/system/xbin/bstk/su`; on patch-mode builds `su` is on the `PATH` directly. `bst.feature.rooting` resets to `0` on launch, but root stays live via the per-instance `enable_root_access` flag.
+
+<details>
+<summary><b>Background: the 5.22 "security" popup</b></summary>
+
+**Issue:** BlueStacks 5.22+ (October 2025) shows *"Android system doesn't meet security"* when root/R/W is enabled.
+
+**Cause:** Google replaced SafetyNet with the Play Integrity API in January 2025. BlueStacks 5.22 enforces integrity checks that detect system modifications.
+
+**Fix:** This GUI's engine patch disables that check, so downgrading to 5.21 is no longer required. Downgrade instructions are kept below for reference.
+
+</details>
 
 <details>
 <summary><b>How to Downgrade to 5.21</b></summary>
@@ -159,7 +176,7 @@ Output will be in the `dist/` folder.
 
 **No instances listed / "Path Not Found"**
 - Run GUI as **Administrator**
-- Verify registry keys exist: `HKLM\SOFTWARE\BlueStacks_nxt` or `HKLM\SOFTWARE\BlueStacks_msi5`
+- Verify registry keys exist: `HKLM\SOFTWARE\BlueStacks_nxt` (Normal), `HKLM\SOFTWARE\BlueStacks_nxt_cn` (China), or `HKLM\SOFTWARE\BlueStacks_msi5` (MSI)
 - Perform clean reinstall using official cleaner tool
 
 **Permission errors during toggle**
@@ -187,6 +204,9 @@ Output will be in the `dist/` folder.
 - `instance_handler.py` - Modifies `.bstk` files, handles processes
 - `registry_handler.py` - Reads BlueStacks paths from Windows Registry
 - `constants.py` - Shared constants (keys, filenames, modes)
+- `integrity_patch.py` / `root_persistence.py` - Engine patches (5.22+ integrity bypass, keep root enabled)
+- `su_patch_offline.py` - Patch-mode app root: flips guest `su` `isDeveloperMode` inside `Data.vhdx`
+- `ext4_symlink.py` - Classic/MSI app root: adds `/system/xbin/su` in `Root.vhd` via bundled `debugfs` (`tools/e2fsprogs/`)
 
 ### Dependencies
 
