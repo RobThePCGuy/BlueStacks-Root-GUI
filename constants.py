@@ -61,6 +61,10 @@ REGEX_BSTK_READONLY_PATTERN = re.compile(
 
 BLUESTACKS_PROCESS_NAMES = [
     "HD-Player.exe",
+    # Must be terminated before patching: the engine patch rewrites
+    # HD-MultiInstanceManager.exe, and Windows denies the write while the
+    # Manager window is open (its .exe is locked).
+    "HD-MultiInstanceManager.exe",
     "BlueStacks.exe",
     "HD-Agent.exe",
     "BstkSVC.exe",

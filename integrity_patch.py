@@ -40,6 +40,7 @@ Usage (standalone)::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import os
 import shutil
@@ -277,16 +278,62 @@ def patch_file(path: str, specs: List[PatchSpec] = (DISK_INTEGRITY_CALL,),
             logger.info("Backed up original to %s", backup)
     with open(path, "wb") as fh:
         fh.write(data)
+    # Record the hash of the file *as we just patched it*. restore_file() uses
+    # this to detect the case where BlueStacks auto-updated the binary to a new
+    # version after we patched: restoring the stale backup over a newer binary
+    # would mismatch the rest of the install and could break the player.
+    if make_backup:
+        try:
+            with open(backup + ".sha256", "w", encoding="utf-8") as fh:
+                fh.write(_sha256(path))
+        except OSError:
+            logger.debug("Could not record patched-file hash for %s", path, exc_info=True)
     return True
 
 
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def restore_file(path: str) -> bool:
-    """Restore a binary from its ``.prepatch.bak`` backup. Returns True if done."""
+    """Restore a binary from its ``.prepatch.bak`` backup. Returns True if done.
+
+    Refuses to restore when the current on-disk binary is not the one we patched
+    (its hash no longer matches what patch_file() recorded) -- that means
+    BlueStacks replaced it with a newer build, and overwriting it with our stale
+    backup could leave the install inconsistent. In that case the fresh binary is
+    already unpatched, so there is nothing to restore anyway.
+    """
     backup = path + BACKUP_SUFFIX
     if not os.path.exists(backup):
         logger.warning("No backup found for %s", path)
         return False
+    meta = backup + ".sha256"
+    if os.path.exists(meta) and os.path.exists(path):
+        try:
+            recorded = open(meta, encoding="utf-8").read().strip()
+        except OSError:
+            recorded = ""
+        if recorded:
+            current = _sha256(path)
+            if current != recorded:
+                logger.warning(
+                    "%s changed since it was patched (current %s != patched %s) -- "
+                    "BlueStacks likely updated it. Refusing to overwrite the newer "
+                    "binary with the stale backup.",
+                    os.path.basename(path), current[:12], recorded[:12])
+                return False
     shutil.copy2(backup, path)
+    for stale in (meta,):  # patched-hash record is meaningless once restored
+        try:
+            if os.path.exists(stale):
+                os.remove(stale)
+        except OSError:
+            pass
     logger.info("Restored %s from backup", path)
     return True
 
