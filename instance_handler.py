@@ -183,7 +183,9 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
         return None
 
     if not bstk_files_to_check:
-        logger.warning(
+        # Normal for BlueStacks' own non-instance folders (Manager, UserData);
+        # debug-level so the 5s status refresh doesn't spam warnings.
+        logger.debug(
             f"No .bstk files found to check readonly status in {instance_path}"
         )
         return None
@@ -227,7 +229,7 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
         return False
     else:
 
-        logger.warning(
+        logger.debug(
             f"No configuration lines found for target disk files ({constants.RW_DETECT_FILES}) in instance {instance_path}. Cannot determine R/W status."
         )
         return None
