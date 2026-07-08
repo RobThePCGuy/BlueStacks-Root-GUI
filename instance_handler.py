@@ -201,7 +201,7 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
 
                     if any(
                         target_file in line
-                        for target_file in constants.FILES_TO_MODIFY_RW
+                        for target_file in constants.RW_DETECT_FILES
                     ):
                         found_relevant_line = True
 
@@ -228,7 +228,7 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
     else:
 
         logger.warning(
-            f"No configuration lines found for target disk files ({constants.FILES_TO_MODIFY_RW}) in instance {instance_path}. Cannot determine R/W status."
+            f"No configuration lines found for target disk files ({constants.RW_DETECT_FILES}) in instance {instance_path}. Cannot determine R/W status."
         )
         return None
 

@@ -145,9 +145,18 @@ class BluestacksRootToggle(QWidget):
         )
         self.restore_button.clicked.connect(self.handle_restore_patches)
         main_layout.addWidget(self.restore_button)
+
+        # Shows whether the engine binaries are currently patched, so you don't
+        # have to guess. The engine patch is per-install (shared by every
+        # instance), so this reflects the whole installation, not a single one.
+        self.engine_status_label = QLabel("")
+        self.engine_status_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(self.engine_status_label)
+
         # Visibility is decided once installations are read (see _refresh_patch_ui).
         self.patch_button.setVisible(False)
         self.restore_button.setVisible(False)
+        self.engine_status_label.setVisible(False)
 
         self.status_label = QLabel("Ready")
         self.status_label.setAlignment(Qt.AlignCenter)
@@ -175,10 +184,29 @@ class BluestacksRootToggle(QWidget):
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _refresh_patch_ui(self) -> None:
-        """Show the engine-patch buttons only when a 5.22.150.1014+ install exists."""
+        """Show the engine-patch buttons + status only when a 5.22.150.1014+ install exists."""
         has_patch_build = any(i.get("patch_mode") for i in self.installations)
         self.patch_button.setVisible(has_patch_build)
         self.restore_button.setVisible(has_patch_build)
+        self.engine_status_label.setVisible(has_patch_build)
+        if has_patch_build:
+            text, color = self._engine_status()
+            self.engine_status_label.setText(text)
+            self.engine_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def _engine_status(self):
+        """(label, color) describing whether the engine is patched across installs."""
+        states = [integrity_patch.installation_patched(i["install_path"])
+                  for i in self.installations
+                  if i.get("patch_mode") and i.get("install_path")
+                  and os.path.isdir(i["install_path"])]
+        if states and all(s is True for s in states):
+            return "Engine: Patched ✓  (applies to every instance)", "#2e7d32"
+        if states and all(s is False for s in states):
+            return "Engine: Not patched — click \"Patch BlueStacks Engine\" once", "#c62828"
+        if any(s is True for s in states):
+            return "Engine: Partially patched — re-run \"Patch BlueStacks Engine\"", "#e65100"
+        return "Engine: status unknown (unrecognized build?)", "#616161"
 
     def update_instance_data(self) -> None:
         if not self.installations: return
@@ -424,6 +452,7 @@ class BluestacksRootToggle(QWidget):
         self.status_label.setText(summary if ok else f"Error: {summary}")
         logger.info("Operation finished (ok=%s): %s", ok, summary)
         self.update_instance_statuses(preserve_selection=True)
+        self._refresh_patch_ui()  # reflect the new engine-patch state after a patch/restore
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _cleanup_async(self):
