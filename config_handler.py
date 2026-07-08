@@ -6,6 +6,7 @@ from typing import Dict, Any
 
 
 import constants
+import root_persistence
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,13 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
 
     if changed:
         try:
-            with open(config_path, "w", encoding="utf-8") as file:
-                file.writelines(updated_lines)
+            # The persistence bypass may have set bluestacks.conf read-only to
+            # stop BlueStacks reverting the root keys. Temporarily clear that
+            # attribute for the write and restore it afterwards, so legitimate
+            # edits keep working without losing the lock.
+            with root_persistence.unlocked(config_path):
+                with open(config_path, "w", encoding="utf-8") as file:
+                    file.writelines(updated_lines)
             logger.debug(f"Successfully wrote changes to {config_path}")
         except Exception as e:
             logger.exception(f"Error writing updated configuration file {config_path}")
