@@ -125,7 +125,7 @@ The original flag-based flow, used to install Kitsune Mask into `/system`.
    - Click **"Toggle R/W"** (turn ON)
 
 2. **Install Kitsune Mask**
-   - Download **[Kitsune Mask APK](https://github.com/1q23lyc45/KitsuneMagisk/releases)**
+   - Download the **[Kitsune Mask APK](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/releases/tag/magisk-delta-kitsune-27.001)** — a pinned, hash-verified copy (the original repo is abandoned)
    - Launch the instance via BlueStacks Multi-Instance Manager
    - Install the APK (drag-and-drop)
    - Open the Kitsune Mask app
