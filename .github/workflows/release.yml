@@ -1,0 +1,53 @@
+name: Release
+
+# Build the Windows executable and publish a GitHub Release whenever a
+# version tag (e.g. v3.0.0) is pushed. Can also be run manually to produce
+# a build artifact without cutting a release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build executable
+        run: >
+          pyinstaller --onefile --windowed
+          --icon="favicon.ico"
+          --add-data "favicon.ico;."
+          --add-data "tools/e2fsprogs;tools/e2fsprogs"
+          --name BlueStacksRootGUI main.py
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueStacksRootGUI
+          path: dist/BlueStacksRootGUI.exe
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/BlueStacksRootGUI.exe
+          generate_release_notes: true

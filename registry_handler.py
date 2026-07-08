@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 import winreg
 import logging
 import os
-from typing import List, Dict, Any
+from typing import Any
 
 import constants
 
 logger = logging.getLogger(__name__)
 
-Installation = Dict[str, Any]
+Installation = dict[str, Any]
 
-def get_all_bluestacks_installations() -> List[Installation]:
-    installations: List[Installation] = []
+def get_all_bluestacks_installations() -> list[Installation]:
+    installations: list[Installation] = []
     reg_sources = {
         constants.APP_SOURCE_NXT: constants.REGISTRY_BASE_PATH,
         constants.APP_SOURCE_NXT_CN: constants.REGISTRY_CN_BASE_PATH,

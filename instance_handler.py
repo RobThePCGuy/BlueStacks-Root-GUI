@@ -1,9 +1,10 @@
 """Operations related to BlueStacks instances."""
+from __future__ import annotations
+
 import os
 import glob
 import logging
 import psutil
-from typing import List, Optional
 
 
 import constants
@@ -37,7 +38,7 @@ def modify_instance_files(instance_path: str, new_mode: str) -> None:
     if not os.path.isdir(instance_path):
         raise FileNotFoundError(f"Instance directory not found: {instance_path}")
 
-    bstk_files_to_process: List[str] = []
+    bstk_files_to_process: list[str] = []
     android_bstk_in_path = os.path.join(instance_path, constants.ANDROID_BSTK_IN_FILE)
 
     if os.path.exists(android_bstk_in_path):
@@ -62,7 +63,7 @@ def modify_instance_files(instance_path: str, new_mode: str) -> None:
     except Exception as e:
         logger.error(f"Error finding .bstk files in {instance_path}: {e}")
 
-        raise IOError(f"Error finding .bstk files in {instance_path}") from e
+        raise OSError(f"Error finding .bstk files in {instance_path}") from e
 
     if not bstk_files_to_process:
 
@@ -84,7 +85,7 @@ def modify_instance_files(instance_path: str, new_mode: str) -> None:
         logger.debug(f"Processing file: {bstk_file_path}")
         try:
 
-            with open(bstk_file_path, "r", encoding="utf-8") as f:
+            with open(bstk_file_path, encoding="utf-8") as f:
                 content = f.readlines()
 
             updated_content = []
@@ -132,7 +133,7 @@ def modify_instance_files(instance_path: str, new_mode: str) -> None:
 
             logger.error(f"File disappeared during processing: {bstk_file_path}")
             raise
-        except IOError:
+        except OSError:
             logger.exception(f"I/O error processing file {bstk_file_path}")
             raise
         except Exception:
@@ -140,7 +141,7 @@ def modify_instance_files(instance_path: str, new_mode: str) -> None:
             raise
 
 
-def is_instance_readonly(instance_path: str) -> Optional[bool]:
+def is_instance_readonly(instance_path: str) -> bool | None:
     """
     Checks if any relevant disk file (.vdi, .vhd) is explicitly set to 'Readonly'
     in the instance's .bstk files.
@@ -161,7 +162,7 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
         )
         return None
 
-    bstk_files_to_check: List[str] = []
+    bstk_files_to_check: list[str] = []
     android_bstk_in_path = os.path.join(instance_path, constants.ANDROID_BSTK_IN_FILE)
     if os.path.exists(android_bstk_in_path):
         bstk_files_to_check.append(android_bstk_in_path)
@@ -198,7 +199,7 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
     for file_path in bstk_files_to_check:
         logger.debug(f"Scanning file for readonly check: {file_path}")
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
 
                     if any(
@@ -234,37 +235,6 @@ def is_instance_readonly(instance_path: str) -> Optional[bool]:
         )
         return None
 
-
-def is_bluestacks_running() -> bool:
-    """
-    Checks if any known BlueStacks processes are running.
-
-    Returns:
-        True if at least one known BlueStacks process is found, False otherwise.
-    """
-    logger.debug("Checking for running BlueStacks processes...")
-    for proc in psutil.process_iter(["name"]):
-        try:
-
-            proc_name = proc.info["name"]
-            if proc_name in constants.BLUESTACKS_PROCESS_NAMES:
-                logger.info(
-                    f"Detected running BlueStacks process: {proc_name} (PID: {proc.pid})"
-                )
-                return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-
-            logger.debug(f"Skipping process check for PID {proc.pid}: {e}")
-            continue
-        except Exception as e:
-
-            logger.exception(f"Unexpected error checking process {proc.pid}: {e}")
-            continue
-
-    logger.debug("No running BlueStacks processes found matching the known list.")
-    return False
-
-
 def terminate_bluestacks() -> bool:
     """
     Attempts to terminate all known BlueStacks-related processes gracefully,
@@ -276,7 +246,7 @@ def terminate_bluestacks() -> bool:
     """
     terminated_any = False
     logger.info("Attempting to terminate BlueStacks processes...")
-    processes_found: List[psutil.Process] = []
+    processes_found: list[psutil.Process] = []
 
     for proc in psutil.process_iter(["pid", "name"]):
         try:
