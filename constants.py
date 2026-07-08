@@ -42,8 +42,17 @@ MODE_UNKNOWN = "Unknown"
 
 FASTBOOT_VDI = "fastboot.vdi"
 ROOT_VHD = "Root.vhd"
+DATA_VHDX = "Data.vhdx"
 
+# Disks whose Type= the R/W *toggle* flips. Only the system disks -- never
+# Data.vhdx (userdata), which must stay writable or the instance won't boot.
 FILES_TO_MODIFY_RW = [FASTBOOT_VDI, ROOT_VHD]
+
+# Disks read when *detecting* an instance's R/W state. Newer BlueStacks
+# instances (created/cloned) ship a single Data.vhdx and no fastboot.vdi/
+# Root.vhd, so their .bstk only references Data.vhdx. We include it here so
+# such instances are recognized (and listed) instead of coming back "Unknown".
+RW_DETECT_FILES = [FASTBOOT_VDI, ROOT_VHD, DATA_VHDX]
 
 
 ANDROID_BSTK_IN_FILE = "Android.bstk.in"

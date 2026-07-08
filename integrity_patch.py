@@ -338,6 +338,37 @@ def restore_file(path: str) -> bool:
     return True
 
 
+def is_file_patched(path: str, spec: PatchSpec) -> Optional[bool]:
+    """Return True/False if ``spec`` is/ isn't applied to the binary at ``path``.
+
+    Returns None when the state is indeterminate (file missing/unreadable, or the
+    signature isn't found -- e.g. a build this patch doesn't apply to).
+    """
+    try:
+        with open(path, "rb") as fh:
+            data = bytearray(fh.read())
+    except OSError:
+        return None
+    hits = spec.locator(bytes(data)) if spec.locator is not None else _find_signature(data, spec.signature)
+    if len(hits) != 1:
+        return None
+    at = hits[0] + spec.patch_offset
+    return bytes(data[at:at + len(spec.patch_bytes)]) == spec.patch_bytes
+
+
+def installation_patched(install_dir: str) -> Optional[bool]:
+    """Whether this install's engine is currently patched.
+
+    True if ``HD-Player.exe`` carries the unlock patch, False if it doesn't, None
+    if it can't be determined (binary missing, or an unrecognized build). Cheap
+    enough to call on a UI refresh -- it just reads and scans one binary.
+    """
+    path = os.path.join(install_dir, "HD-Player.exe")
+    if not os.path.isfile(path):
+        return None
+    return is_file_patched(path, UNLOCK_PLAYER)
+
+
 def patch_installation(install_dir: str, restore: bool = False) -> List[str]:
     """Patch (or restore) every candidate binary found in ``install_dir``.
 
