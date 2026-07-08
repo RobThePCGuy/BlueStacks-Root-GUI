@@ -152,7 +152,7 @@ schtasks /Change /TN "BlueStacksHelper_nxt" /DISABLE
 ```
 
 > [!WARNING]
-> Disabling **both** matters. The `BstHdUpdaterSvc` service is the obvious one, but BlueStacks also runs a scheduled task (`BlueStacksHelper_nxt`) that can update independently — disabling only the service isn't enough. Setting `bst.auto_update="0"` in `bluestacks.conf` does **not** work; it is silently ignored.
+> The scheduled task is the one that matters most. Some builds don't even install the `BstHdUpdaterSvc` service — the `sc.exe` lines will report *"service does not exist,"* which is fine — but they still ship the `BlueStacksHelper_nxt` scheduled task, which can update independently. Disable whichever exist. Setting `bst.auto_update="0"` in `bluestacks.conf` does **not** work; it is silently ignored.
 
 ## Troubleshooting
 
