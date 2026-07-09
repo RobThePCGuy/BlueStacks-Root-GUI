@@ -138,6 +138,13 @@ class DynamicVHDX:
         self.f = open(path, "r+b" if writable else "rb")
         if self.f.read(8) != VHDX_SIGNATURE:
             raise ValueError("not a VHDX")
+        # A non-zero LogGuid in the active header means the disk was left dirty
+        # (an unflushed metadata log) by an abrupt shutdown. We read/write the
+        # payload directly and do NOT replay that log, so patching a dirty disk
+        # risks BlueStacks replaying pending entries over our writes on next
+        # boot. Surface it (warn, don't block) so the caller can advise a clean
+        # shutdown first.
+        self.dirty = self._log_dirty()
         # Region table (at 1 MB): find the BAT and Metadata regions.
         self.f.seek(_VHDX_REGION_TABLE_OFF)
         rhdr = self.f.read(16)
@@ -187,6 +194,26 @@ class DynamicVHDX:
                 self._phys_off.append(entry & ~0xFFFFF)
             else:
                 self._phys_off.append(None)
+
+    def _log_dirty(self) -> bool:
+        """True if the VHDX's active header carries a non-zero LogGuid (dirty log).
+
+        The two header sections live at 64 KB and 128 KB; the one with the higher
+        SequenceNumber is active. In each 4 KB header: signature "head" @0,
+        SequenceNumber @8 (u64), LogGuid @48 (16 bytes). All-zero LogGuid = clean.
+        """
+        best_seq = -1
+        dirty = False
+        for hoff in (0x10000, 0x20000):
+            self.f.seek(hoff)
+            hdr = self.f.read(64)
+            if len(hdr) < 64 or hdr[:4] != b"head":
+                continue
+            seq = struct.unpack_from("<Q", hdr, 8)[0]
+            if seq > best_seq:
+                best_seq = seq
+                dirty = hdr[48:64] != b"\x00" * 16
+        return dirty
 
     def is_present(self, blk: int) -> bool:
         return 0 <= blk < self.max_entries and self._phys_off[blk] is not None
@@ -451,6 +478,10 @@ def enable(vhd_path: str, progress=None) -> list[str]:
 
     _p("Opening %s" % os.path.basename(vhd_path))
     vhd = open_disk(vhd_path, writable=True)
+    if getattr(vhd, "dirty", False):
+        _p("WARNING: this instance's disk was not shut down cleanly (dirty VHDX "
+           "log). Boot it once and fully close it before patching, or the patch "
+           "may be lost on next launch.")
     try:
         _p("Scanning /system for su binaries...")
         entries = _scan_su_entries(vhd, _pct)
@@ -498,6 +529,9 @@ def disable(vhd_path: str, progress=None) -> list[str]:
     results: list[str] = []
     _p("Opening %s" % os.path.basename(vhd_path))
     vhd = open_disk(vhd_path, writable=True)
+    if getattr(vhd, "dirty", False):
+        _p("WARNING: this instance's disk was not shut down cleanly (dirty VHDX "
+           "log). Boot it once and fully close it before un-rooting.")
     try:
         for i, p in enumerate(patches, 1):
             _p("Restoring su %d/%d..." % (i, len(patches)))
@@ -506,6 +540,14 @@ def disable(vhd_path: str, progress=None) -> list[str]:
             cur = vhd.read(off, 3)
             if cur == orig:
                 results.append("su@0x%X already original" % off)
+                continue
+            # Only restore when this location still holds OUR patch (b0 01 c3).
+            # If it holds neither the patch nor the original, the ext4 layout has
+            # shifted under us (block reallocated) -- writing the original bytes
+            # blindly could clobber unrelated data, so skip and flag it.
+            if cur != su_patch.PATCH:
+                results.append("su@0x%X unexpected bytes (%s); skipped to avoid "
+                               "clobbering" % (off, cur.hex(" ")))
                 continue
             vhd.write(off, orig)
             results.append("su@0x%X restored (%s -> %s)" % (off, cur.hex(" "), orig.hex(" ")))

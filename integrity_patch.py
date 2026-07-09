@@ -273,9 +273,27 @@ def patch_file(path: str, specs: list[PatchSpec] = (DISK_INTEGRITY_CALL,),
 
     if make_backup:
         backup = path + BACKUP_SUFFIX
+        # At this point `path` on disk is still the ORIGINAL, unpatched binary
+        # (we only patched the in-memory `data`); so it is safe to back up now.
         if not os.path.exists(backup):
             shutil.copy2(path, backup)
             logger.info("Backed up original to %s", backup)
+        elif _sha256(path) != _sha256(backup):
+            # A backup exists but the current unpatched binary differs from it:
+            # BlueStacks replaced the binary with a newer build since we last
+            # patched. The old backup is stale (a different version), and keeping
+            # it would let a later "Undo" restore the WRONG build over this one.
+            # Archive the stale backup and take a fresh one of the current build.
+            stale = backup + ".old"
+            try:
+                shutil.copy2(backup, stale)
+                logger.info("BlueStacks updated %s since last patch; archived "
+                            "stale backup to %s", os.path.basename(path),
+                            os.path.basename(stale))
+            except OSError:
+                logger.debug("Could not archive stale backup %s", backup, exc_info=True)
+            shutil.copy2(path, backup)
+            logger.info("Refreshed backup for updated %s", os.path.basename(path))
     with open(path, "wb") as fh:
         fh.write(data)
     # Record the hash of the file *as we just patched it*. restore_file() uses
