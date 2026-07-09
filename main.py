@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QCheckBox,
     QMessageBox,
+    QFileDialog,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QIcon
@@ -31,6 +32,7 @@ import root_persistence
 import integrity_patch
 import su_patch_offline
 import ext4_symlink
+import adb_handler
 import admin
 
 # Log to console AND a file in the local temp dir. The file is important when
@@ -164,6 +166,20 @@ class BluestacksRootToggle(QWidget):
         self.restore_button.setVisible(False)
         self.engine_status_label.setVisible(False)
 
+        # --- Install a Magisk/Kitsune module directly ---------------------
+        # Pushes a module .zip into a RUNNING instance and flashes it over an ADB
+        # root shell (magisk --install-module) -- sidesteps BlueStacks' file
+        # picker handing Magisk an "Invalid Uri" it can't open. Falls back to
+        # dropping the zip in Download if the root shell isn't reachable.
+        self.sideload_button = QPushButton("Install Magisk Module (.zip) into a running instance")
+        self.sideload_button.setToolTip(
+            "Select one running instance above, choose a module .zip, and it's "
+            "pushed in and flashed via Magisk automatically. Close and reopen the "
+            "instance afterwards to activate it. The instance must be running."
+        )
+        self.sideload_button.clicked.connect(self.handle_sideload_module)
+        main_layout.addWidget(self.sideload_button)
+
         self.status_label = QLabel("Ready")
         self.status_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(self.status_label)
@@ -220,6 +236,7 @@ class BluestacksRootToggle(QWidget):
         all_found_instances: dict[str, dict[str, Any]] = {}
         for inst in self.installations:
             source_id, config_path, data_path = inst["source"], inst["config_path"], inst["data_path"]
+            install_path = inst.get("install_path")     # for locating HD-Adb.exe (sideload)
             patch_mode = inst.get("patch_mode", False)  # 5.22.150.1014+ uses the patches
             root_info = config_handler.get_complete_root_statuses(config_path)
             instance_root_statuses = root_info['instance_statuses']
@@ -258,6 +275,7 @@ class BluestacksRootToggle(QWidget):
                     "original_name": name,
                     "config_path": config_path,
                     "data_path": instance_dir_path,
+                    "install_path": install_path,
                     "rw_mode": rw_mode,
                     "root_enabled": effective_root_status,
                     "individual_root_status": individual_root_on,
@@ -432,10 +450,50 @@ class BluestacksRootToggle(QWidget):
     def handle_toggle_root(self): self._perform_operation(self._toggle_single_instance_root, "Root")
     def handle_toggle_rw(self): self._perform_operation(self._toggle_single_instance_rw, "R/W")
 
+    def handle_sideload_module(self) -> None:
+        """Push a chosen module .zip into one running instance and flash it.
+
+        Unlike every other action here, this needs the instance RUNNING (its ADB
+        port must be open). We target exactly one selected instance so the module
+        installs into the right guest.
+        """
+        selected = [uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()]
+        if len(selected) != 1:
+            QMessageBox.information(
+                self, "Select one instance",
+                "Tick exactly one (running) instance to receive the module, then "
+                "click Sideload again.")
+            return
+        uid = selected[0]
+        instance = self.instance_data[uid]
+
+        install_dirs = [i.get("install_path") for i in self.installations]
+        adb_exe = adb_handler.find_adb(install_dirs)
+        if not adb_exe:
+            QMessageBox.warning(
+                self, "ADB not found",
+                "Couldn't find HD-Adb.exe in the BlueStacks install folder, so the "
+                "module can't be pushed.")
+            return
+
+        zip_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Magisk/Kitsune module", "", "Module archives (*.zip)")
+        if not zip_path:
+            return
+
+        port = adb_handler.instance_adb_port(instance["config_path"], instance["original_name"])
+
+        def job(progress):
+            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=progress)
+            self.show_notice.emit("Module installed", msg)
+            return "Module installed. Close and reopen the instance to activate it."
+
+        self._run_async(job, "Installing %s..." % os.path.basename(zip_path))
+
     # ---- Background-thread plumbing (keeps the UI responsive) -------------
     def _action_buttons(self):
         return [self.root_toggle_button, self.rw_toggle_button,
-                self.patch_button, self.restore_button]
+                self.patch_button, self.restore_button, self.sideload_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():
