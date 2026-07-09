@@ -81,15 +81,41 @@ def _parse_devices(stdout: str) -> list:
     return serials
 
 
-def push_module(adb_exe: str, port: Optional[int], local_zip: str,
-                remote_dir: str = "/sdcard/Download/",
-                progress: Optional[Callable[[str], None]] = None,
-                runner: Runner = _run) -> str:
-    """Push ``local_zip`` into a running instance's ``remote_dir``.
+def _resolve_serial(adb_exe: str, port: Optional[int], runner: Runner) -> str:
+    """The ADB serial of the target instance, connecting by ``port`` if given,
+    else falling back to the sole attached device. Raises with a user-facing
+    message when nothing usable is reachable."""
+    if port:
+        serial = "127.0.0.1:%d" % port
+        cp = runner([adb_exe, "connect", serial])
+        out = (cp.stdout or "") + (cp.stderr or "")
+        if "connected" in out.lower():
+            return serial
+        logger.debug("adb connect output: %s", out.strip())  # fall through
 
-    Resolves the target serial from ``port`` (connecting if needed), or falls
-    back to the sole attached device. Returns a human-readable status line;
-    raises RuntimeError with a user-facing message on failure.
+    cp = runner([adb_exe, "devices"])
+    devices = _parse_devices(cp.stdout or "")
+    if not devices:
+        raise RuntimeError(
+            "No running BlueStacks instance was reachable over ADB. Start the "
+            "instance, let it reach the home screen, then try again.")
+    if len(devices) > 1:
+        raise RuntimeError(
+            "Multiple instances are running and the target's ADB port could not "
+            "be identified. Close the others and retry, or start only the target "
+            "instance.")
+    return devices[0]
+
+
+def install_module(adb_exe: str, port: Optional[int], local_zip: str,
+                   progress: Optional[Callable[[str], None]] = None,
+                   runner: Runner = _run) -> str:
+    """Push ``local_zip`` to a running instance and flash it via Magisk directly.
+
+    Runs ``magisk --install-module`` over an ADB root shell (the same command we
+    flash by hand). On success the module is installed and only needs a reboot.
+    If the root shell / Magisk isn't reachable, the zip is left in the guest's
+    Download folder and a RuntimeError explains how to flash it manually.
     """
     def _p(msg):
         logger.info(msg)
@@ -99,36 +125,32 @@ def push_module(adb_exe: str, port: Optional[int], local_zip: str,
     if not os.path.isfile(local_zip):
         raise RuntimeError("Module file not found: %s" % local_zip)
 
-    serial = None
-    if port:
-        serial = "127.0.0.1:%d" % port
-        _p("Connecting to %s..." % serial)
-        cp = runner([adb_exe, "connect", serial])
-        out = (cp.stdout or "") + (cp.stderr or "")
-        if "connected" not in out.lower():
-            # connect didn't take -- fall back to whatever's already attached
-            logger.debug("adb connect output: %s", out.strip())
-            serial = None
+    name = os.path.basename(local_zip)
+    _p("Connecting to the instance...")
+    serial = _resolve_serial(adb_exe, port, runner)
 
-    if serial is None:
-        cp = runner([adb_exe, "devices"])
-        devices = _parse_devices(cp.stdout or "")
-        if not devices:
-            raise RuntimeError(
-                "No running BlueStacks instance was reachable over ADB. Start the "
-                "instance, let it reach the home screen, then try again.")
-        if len(devices) > 1:
-            raise RuntimeError(
-                "Multiple instances are running and the target's ADB port could "
-                "not be identified. Close the others and retry, or start only the "
-                "target instance.")
-        serial = devices[0]
-
-    _p("Pushing %s to %s..." % (os.path.basename(local_zip), remote_dir))
-    cp = runner([adb_exe, "-s", serial, "push", local_zip, remote_dir])
-    out = (cp.stdout or "") + (cp.stderr or "")
+    tmp = "/data/local/tmp/" + name
+    _p("Pushing %s..." % name)
+    cp = runner([adb_exe, "-s", serial, "push", local_zip, tmp])
     if cp.returncode != 0:
-        raise RuntimeError("ADB push failed: %s" % out.strip())
-    dest = remote_dir.rstrip("/") + "/" + os.path.basename(local_zip)
-    return "Pushed to %s. In BlueStacks, open Kitsune/Magisk -> Modules -> " \
-           "Install from storage -> Download, and pick this file." % dest
+        raise RuntimeError("ADB push failed: %s"
+                           % ((cp.stdout or "") + (cp.stderr or "")).strip())
+
+    _p("Installing %s via Magisk..." % name)
+    cp = runner([adb_exe, "-s", serial, "shell", "su", "-c",
+                 "magisk --install-module '%s'" % tmp])
+    out = ((cp.stdout or "") + (cp.stderr or "")).strip()
+    runner([adb_exe, "-s", serial, "shell", "rm", "-f", tmp])  # tidy up
+
+    if cp.returncode == 0:
+        return ("Installed \"%s\". Restart this instance in BlueStacks to "
+                "activate the module." % name)
+
+    # Couldn't auto-install (no root shell, Magisk not on PATH, module rejected):
+    # leave the zip where the user can flash it by hand and say so.
+    _p("Direct install failed; copying to Download for manual flashing...")
+    runner([adb_exe, "-s", serial, "push", local_zip, "/sdcard/Download/"])
+    raise RuntimeError(
+        "Couldn't install automatically (%s). The zip was copied to the "
+        "instance's Download folder -- flash it from Magisk/Kitsune: Modules -> "
+        "Install from storage -> Download." % (out or "unknown error"))

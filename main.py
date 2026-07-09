@@ -166,16 +166,16 @@ class BluestacksRootToggle(QWidget):
         self.restore_button.setVisible(False)
         self.engine_status_label.setVisible(False)
 
-        # --- Sideload a Magisk/Kitsune module -----------------------------
-        # Pushes a module .zip into a RUNNING instance's /sdcard/Download/ so it
-        # can be flashed from Magisk's own picker -- sidesteps BlueStacks' file
-        # picker handing Magisk an "Invalid Uri" it can't open.
-        self.sideload_button = QPushButton("Sideload Magisk Module (.zip) to a running instance")
+        # --- Install a Magisk/Kitsune module directly ---------------------
+        # Pushes a module .zip into a RUNNING instance and flashes it over an ADB
+        # root shell (magisk --install-module) -- sidesteps BlueStacks' file
+        # picker handing Magisk an "Invalid Uri" it can't open. Falls back to
+        # dropping the zip in Download if the root shell isn't reachable.
+        self.sideload_button = QPushButton("Install Magisk Module (.zip) into a running instance")
         self.sideload_button.setToolTip(
             "Select one running instance above, choose a module .zip, and it's "
-            "pushed to that instance's Download folder. Then flash it from inside "
-            "Magisk/Kitsune (Modules -> Install from storage). The instance must "
-            "be running."
+            "pushed in and flashed via Magisk automatically. Restart the instance "
+            "afterwards to activate it. The instance must be running."
         )
         self.sideload_button.clicked.connect(self.handle_sideload_module)
         main_layout.addWidget(self.sideload_button)
@@ -451,11 +451,11 @@ class BluestacksRootToggle(QWidget):
     def handle_toggle_rw(self): self._perform_operation(self._toggle_single_instance_rw, "R/W")
 
     def handle_sideload_module(self) -> None:
-        """Push a chosen module .zip into one running instance's Download folder.
+        """Push a chosen module .zip into one running instance and flash it.
 
         Unlike every other action here, this needs the instance RUNNING (its ADB
         port must be open). We target exactly one selected instance so the module
-        lands in the right guest's storage.
+        installs into the right guest.
         """
         selected = [uid for uid, w in self.instance_checkboxes.items() if w["checkbox"].isChecked()]
         if len(selected) != 1:
@@ -484,11 +484,11 @@ class BluestacksRootToggle(QWidget):
         port = adb_handler.instance_adb_port(instance["config_path"], instance["original_name"])
 
         def job(progress):
-            msg = adb_handler.push_module(adb_exe, port, zip_path, progress=progress)
-            self.show_notice.emit("Module sideloaded", msg)
-            return "Module pushed to the instance's Download folder."
+            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=progress)
+            self.show_notice.emit("Module installed", msg)
+            return "Module installed — restart the instance to activate it."
 
-        self._run_async(job, "Sideloading %s..." % os.path.basename(zip_path))
+        self._run_async(job, "Installing %s..." % os.path.basename(zip_path))
 
     # ---- Background-thread plumbing (keeps the UI responsive) -------------
     def _action_buttons(self):
