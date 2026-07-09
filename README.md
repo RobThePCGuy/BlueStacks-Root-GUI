@@ -241,6 +241,10 @@ You should not need this anymore — it's kept for reference only.
 - Check the status bar in the GUI for the error message
 - A full log is written to `%TEMP%\BlueStacksRootGUI.log` — helpful when reporting an issue
 
+**BlueStacks won't launch after patching (locked-down / corporate PCs)**
+- Patching `HD-Player.exe` invalidates its digital signature. Machines that enforce **Windows Defender Application Control (WDAC)** or strict **AppLocker** publisher rules may then block the patched binary from running. This does not affect normal home PCs.
+- If you're on a managed machine and BlueStacks silently fails to start after patching, use **"Undo Engine Patch"** to restore the signed original, or run on a machine without those policies.
+
 ## Development
 
 ### Project Structure
