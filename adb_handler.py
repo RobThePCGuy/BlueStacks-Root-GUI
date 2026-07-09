@@ -143,7 +143,7 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
     runner([adb_exe, "-s", serial, "shell", "rm", "-f", tmp])  # tidy up
 
     if cp.returncode == 0:
-        return "Installed \"%s\". Reboot the instance to activate it." % name
+        return "Installed \"%s\". Close and reopen the instance to activate it." % name
 
     # Couldn't auto-install (no root shell, Magisk not on PATH, module rejected):
     # leave the zip where the user can flash it by hand and say so.
