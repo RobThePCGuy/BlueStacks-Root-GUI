@@ -33,7 +33,12 @@ Runner = Callable[[list], "subprocess.CompletedProcess"]
 
 
 def _run(cmd: list) -> subprocess.CompletedProcess:
+    # Decode adb/magisk output as UTF-8 and never crash on odd bytes. A module's
+    # install log can contain bytes that Windows' default cp1252 can't decode
+    # (e.g. box-drawing/emoji), which would otherwise raise UnicodeDecodeError in
+    # subprocess's reader thread and dump a traceback mid-install.
     return subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                          encoding="utf-8", errors="replace",
                           creationflags=_NO_WINDOW)
 
 
