@@ -133,38 +133,16 @@ class BluestacksRootToggle(QWidget):
         main_layout.addLayout(button_layout)
 
         # --- Engine patch (5.22.150.1014+ only) ----------------------------
-        # Patches HD-Player.exe so _isDiskVerificationRequired() returns 0 --
-        # disabling the "illegally tampered" disk-integrity shutdown so a
-        # su-modified /system can boot. Required once before per-instance root
-        # works on these builds. Hidden on older builds (classic conf rooting).
-        self.patch_button = QPushButton("Patch BlueStacks Engine (required for root)")
-        self.patch_button.setToolTip(
-            "Patches HD-Player.exe (+ HD-MultiInstanceManager.exe) to disable the "
-            "integrity shutdown so rooted instances boot. Do this once, then use "
-            "Toggle Root per instance. Only for BlueStacks 5.22.150.1014+."
-        )
-        self.patch_button.clicked.connect(self.handle_apply_patches)
-        main_layout.addWidget(self.patch_button)
-
-        self.restore_button = QPushButton("Undo Engine Patch (restore originals)")
-        self.restore_button.setToolTip(
-            "Restores HD-Player.exe + HD-MultiInstanceManager.exe from the "
-            ".prepatch.bak backups."
-        )
-        self.restore_button.clicked.connect(self.handle_restore_patches)
-        main_layout.addWidget(self.restore_button)
-
-        # Shows whether the engine binaries are currently patched, so you don't
-        # have to guess. The engine patch is per-install (shared by every
-        # instance), so this reflects the whole installation, not a single one.
-        self.engine_status_label = QLabel("")
-        self.engine_status_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(self.engine_status_label)
-
-        # Visibility is decided once installations are read (see _refresh_patch_ui).
-        self.patch_button.setVisible(False)
-        self.restore_button.setVisible(False)
-        self.engine_status_label.setVisible(False)
+        # One button that both SHOWS the engine state and acts on it: when the
+        # engine isn't patched it offers "Patch"; once patched it turns green and
+        # offers "Undo". The engine patch flips _isDiskVerificationRequired() in
+        # HD-Player.exe to 0 (disables the "illegally tampered" shutdown so a
+        # rooted /system can boot). It's per-install, shared by every instance.
+        # Hidden entirely on older builds (classic conf rooting).
+        self.engine_button = QPushButton("")
+        self.engine_button.clicked.connect(self.handle_engine_button)
+        main_layout.addWidget(self.engine_button)
+        self.engine_button.setVisible(False)  # shown once installations are read
 
         # --- Install a Magisk/Kitsune module directly ---------------------
         # Pushes a module .zip into a RUNNING instance and flashes it over an ADB
@@ -206,29 +184,62 @@ class BluestacksRootToggle(QWidget):
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _refresh_patch_ui(self) -> None:
-        """Show the engine-patch buttons + status only when a 5.22.150.1014+ install exists."""
-        has_patch_build = any(i.get("patch_mode") for i in self.installations)
-        self.patch_button.setVisible(has_patch_build)
-        self.restore_button.setVisible(has_patch_build)
-        self.engine_status_label.setVisible(has_patch_build)
-        if has_patch_build:
-            text, color = self._engine_status()
-            self.engine_status_label.setText(text)
-            self.engine_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        """Drive the single engine button from the current patch state.
 
-    def _engine_status(self):
-        """(label, color) describing whether the engine is patched across installs."""
+        Shown only when a 5.22.150.1014+ install exists. The button's label,
+        colour, and action all reflect state: unpatched -> "Patch", patched ->
+        green "Undo", partial -> "re-patch", unknown -> disabled.
+        """
+        has_patch_build = any(i.get("patch_mode") for i in self.installations)
+        self.engine_button.setVisible(has_patch_build)
+        if not has_patch_build:
+            return
+        state = self._engine_state()
+        text, color, tip, enabled = {
+            "patched": ("✓ Engine patched — click to Undo (restore originals)",
+                        "#2e7d32", "Restores HD-Player.exe + HD-MultiInstanceManager.exe "
+                        "from the .prepatch.bak backups.", True),
+            "unpatched": ("Patch BlueStacks Engine (required for root)",
+                          "#c62828", "Patches HD-Player.exe (+ HD-MultiInstanceManager.exe) "
+                          "to disable the integrity shutdown so rooted instances boot. Do "
+                          "this once, then Toggle Root per instance.", True),
+            "partial": ("⚠ Engine partially patched — click to finish patching",
+                        "#e65100", "Some engine binaries aren't patched yet — re-run the "
+                        "patch to bring them all up to date.", True),
+            "unknown": ("Engine status unknown (unrecognized build)",
+                        "#616161", "Couldn't read the engine patch state for this build.",
+                        False),
+        }[state]
+        self.engine_button.setText(text)
+        self.engine_button.setToolTip(tip)
+        self.engine_button.setStyleSheet(f"color: {color}; font-weight: bold;")
+        # Remember the action for the click handler; disabled only on unknown
+        # builds (busy-state disabling is handled by _set_busy during ops).
+        self._engine_action = "restore" if state == "patched" else "patch"
+        self.engine_button.setEnabled(enabled)
+
+    def _engine_state(self) -> str:
+        """One of 'patched' | 'unpatched' | 'partial' | 'unknown' across installs."""
         states = [integrity_patch.installation_patched(i["install_path"])
                   for i in self.installations
                   if i.get("patch_mode") and i.get("install_path")
                   and os.path.isdir(i["install_path"])]
         if states and all(s is True for s in states):
-            return "Engine: Patched ✓  (applies to every instance)", "#2e7d32"
+            return "patched"
         if states and all(s is False for s in states):
-            return "Engine: Not patched — click \"Patch BlueStacks Engine\" once", "#c62828"
+            return "unpatched"
         if any(s is True for s in states):
-            return "Engine: Partially patched — re-run \"Patch BlueStacks Engine\"", "#e65100"
-        return "Engine: status unknown (unrecognized build?)", "#616161"
+            return "partial"
+        return "unknown"
+
+    def handle_engine_button(self) -> None:
+        """Patch or restore the engine, per the current (freshly-read) state."""
+        # Re-read state at click time so a stale label can't send us the wrong way.
+        self._refresh_patch_ui()
+        if getattr(self, "_engine_action", "patch") == "restore":
+            self.handle_restore_patches()
+        else:
+            self.handle_apply_patches()
 
     def update_instance_data(self) -> None:
         if not self.installations: return
@@ -493,7 +504,7 @@ class BluestacksRootToggle(QWidget):
     # ---- Background-thread plumbing (keeps the UI responsive) -------------
     def _action_buttons(self):
         return [self.root_toggle_button, self.rw_toggle_button,
-                self.patch_button, self.restore_button, self.sideload_button]
+                self.engine_button, self.sideload_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():
