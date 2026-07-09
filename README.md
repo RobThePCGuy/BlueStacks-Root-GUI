@@ -39,6 +39,7 @@ A utility to toggle root access and read/write (R/W) permissions for BlueStacks 
 - **Root Toggle** - Enables root the right way for your build: the `enable_root_access` / `bst.feature.rooting` flags on classic builds, plus an offline guest-`su` patch on 5.22.150.1014+. Prompts you to boot a fresh instance once if its `su` isn't generated yet
 - **Engine Patch (5.22+)** - Patches `HD-Player.exe` to disable the *"doesn't meet security"* integrity shutdown, and `HD-MultiInstanceManager.exe` so root isn't reset back off when you edit instances
 - **Read/Write Toggle** - Switches disk files (`fastboot.vdi`, `Root.vhd`) between `Normal` and `Readonly`
+- **Install Magisk Module** - Pushes a module `.zip` into a running instance and flashes it directly over BlueStacks' bundled ADB (`magisk --install-module`), so you skip BlueStacks' file dialog entirely (it hands Magisk an *"Invalid Uri"* it can't open). Just restart the instance afterwards to activate it
 - **Reversible** - Every binary patch backs up to a `.prepatch.bak`; every guest-`su` patch records the original bytes. "Undo Engine Patch" and toggling root off restore the originals
 - **Process Handling** - Closes all BlueStacks processes (player, services, and the Multi-Instance Manager) before applying changes
 - **Responsive UI** - Long operations run on background threads (`QThread`) so the window never freezes
@@ -236,6 +237,9 @@ You should not need this anymore — it's kept for reference only.
 **"Direct Install to /system" option missing**
 - Verify both **Root** and **R/W** are ON before launching the instance
 - Close and reopen the Kitsune Mask app within BlueStacks
+
+**Installing a module fails with "Invalid Uri"**
+- BlueStacks' file picker gives Magisk/Kitsune a Windows-style path it can't open. Instead, start the instance, tick it in the GUI, and use **"Install Magisk Module (.zip)"** — it pushes the module in and flashes it via Magisk for you. Restart the instance to activate it. (If the ADB root shell isn't reachable, it drops the zip in the instance's `Download` folder so you can flash it by hand.)
 
 **Toggle operation errors**
 - Check the status bar in the GUI for the error message
