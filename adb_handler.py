@@ -150,6 +150,8 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
     _p("Direct install failed; copying to Download for manual flashing...")
     runner([adb_exe, "-s", serial, "push", local_zip, "/sdcard/Download/"])
     raise RuntimeError(
-        "Couldn't install automatically (%s). The zip was copied to the "
-        "instance's Download folder -- flash it from Magisk/Kitsune: Modules -> "
-        "Install from storage -> Download." % (out or "unknown error"))
+        "Couldn't install automatically (%s). If that's a root-permission "
+        "rejection, set Magisk/Kitsune -> Settings -> Superuser access -> "
+        "\"Apps and ADB\" and try again. The zip was also copied to the "
+        "instance's Download folder -- or flash it there: Modules -> Install "
+        "from storage -> Download." % (out or "unknown error"))
