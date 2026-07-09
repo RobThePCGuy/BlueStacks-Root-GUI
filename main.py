@@ -174,7 +174,7 @@ class BluestacksRootToggle(QWidget):
         self.sideload_button = QPushButton("Install Magisk Module (.zip) into a running instance")
         self.sideload_button.setToolTip(
             "Select one running instance above, choose a module .zip, and it's "
-            "pushed in and flashed via Magisk automatically. Restart the instance "
+            "pushed in and flashed via Magisk automatically. Reboot the instance "
             "afterwards to activate it. The instance must be running."
         )
         self.sideload_button.clicked.connect(self.handle_sideload_module)
@@ -486,7 +486,7 @@ class BluestacksRootToggle(QWidget):
         def job(progress):
             msg = adb_handler.install_module(adb_exe, port, zip_path, progress=progress)
             self.show_notice.emit("Module installed", msg)
-            return "Module installed — restart the instance to activate it."
+            return "Module installed. Reboot the instance to activate it."
 
         self._run_async(job, "Installing %s..." % os.path.basename(zip_path))
 
