@@ -39,7 +39,7 @@ jobs:
           --name BlueStacksRootGUI main.py
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BlueStacksRootGUI
           path: dist/BlueStacksRootGUI.exe
