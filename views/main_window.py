@@ -294,7 +294,17 @@ class MainWindow(QWidget):
             root_info = config_handler.get_complete_root_statuses(config_path)
             instance_root_statuses = root_info['instance_statuses']
 
-            disk_instances = {entry for entry in (os.listdir(data_path) if os.path.isdir(data_path) else []) if os.path.isdir(os.path.join(data_path, entry))}
+            disk_instances = set()
+            if os.path.isdir(data_path):
+                try:
+                    disk_instances = {
+                        entry for entry in os.listdir(data_path)
+                        if os.path.isdir(os.path.join(data_path, entry))
+                    }
+                except OSError:
+                    # Runs on the status-refresh timer; a PermissionError here
+                    # must not take down the refresh loop.
+                    logger.warning("Could not list %s", data_path, exc_info=True)
             all_instance_names = set(instance_root_statuses.keys()) | disk_instances
 
             for name in sorted(all_instance_names):
@@ -489,6 +499,9 @@ class MainWindow(QWidget):
         self._scan_thread.started.connect(self._scan_worker.run)
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.finished.connect(self._scan_thread.quit)
+        # Delete the worker from inside its own still-running event loop; a
+        # deleteLater() issued after the thread has stopped never gets processed.
+        self._scan_worker.finished.connect(self._scan_worker.deleteLater)
         self._scan_thread.finished.connect(self._cleanup_scan)
         self._scan_thread.start()
 
@@ -496,8 +509,7 @@ class MainWindow(QWidget):
         self.modules_page.set_running_instances(running_ids)
 
     def _cleanup_scan(self) -> None:
-        if self._scan_worker is not None:
-            self._scan_worker.deleteLater()
+        # The worker deletes itself via its finished -> deleteLater connection.
         if self._scan_thread is not None:
             self._scan_thread.deleteLater()
         self._scan_worker = None
@@ -566,6 +578,9 @@ class MainWindow(QWidget):
         self._op_worker.progress.connect(self._on_async_progress)
         self._op_worker.done.connect(self._on_async_done)
         self._op_worker.done.connect(self._op_thread.quit)
+        # Delete the worker from inside its own still-running event loop (see
+        # _refresh_running_instances for why a post-stop deleteLater leaks).
+        self._op_worker.done.connect(self._op_worker.deleteLater)
         self._op_thread.finished.connect(self._cleanup_async)
         self._op_thread.start()
 
@@ -613,8 +628,7 @@ class MainWindow(QWidget):
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _cleanup_async(self):
-        if getattr(self, "_op_worker", None) is not None:
-            self._op_worker.deleteLater()
+        # The worker deletes itself via its done -> deleteLater connection.
         if getattr(self, "_op_thread", None) is not None:
             self._op_thread.deleteLater()
         self._op_worker = None
@@ -717,6 +731,16 @@ class MainWindow(QWidget):
         self.update_instance_checkboxes(preserve_selection)
 
     def closeEvent(self, event):
+        # A background engine/root operation writes real binaries and disk
+        # images; tearing the app down mid-write can crash on exit or corrupt
+        # those files. Refuse to close until it finishes rather than killing it.
+        if getattr(self, "_op_thread", None) is not None:
+            QMessageBox.warning(
+                self, "Operation in progress",
+                "A background operation is still running. Please wait for it to "
+                "finish before closing.")
+            event.ignore()
+            return
         self.status_refresh_timer.stop()
         # Don't let a running ADB probe outlive the window (QThread would warn
         # "destroyed while still running"). It's bounded by adb's own timeout.

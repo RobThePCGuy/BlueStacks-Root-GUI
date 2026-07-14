@@ -175,8 +175,11 @@ def list_running_instances(adb_exe: str, instances, runner: Runner = _run) -> di
         port = instance_adb_port(config_path, name)
         if port is None:
             continue
-        cp = runner([adb_exe, "connect", "127.0.0.1:%d" % port])
-        out = (cp.stdout or "") + (cp.stderr or "")
-        if "connected" in out.lower():
-            running[unique_id] = port
+        try:
+            cp = runner([adb_exe, "connect", "127.0.0.1:%d" % port])
+            out = (cp.stdout or "") + (cp.stderr or "")
+            if "connected" in out.lower():
+                running[unique_id] = port
+        except Exception as exc:  # noqa: BLE001 - one bad instance mustn't abort the rest
+            logger.warning("ADB probe failed for %s: %s", unique_id, exc)
     return running
