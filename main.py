@@ -323,11 +323,16 @@ class BluestacksRootToggle(QWidget):
             checkbox.setChecked(unique_id in previous_selection)
 
             root_text = "On" if data["root_enabled"] else "Off"
+            Qlabel_root = QLabel(f"Root: {root_text}")
+            if root_text == "On":
+                Qlabel_root.setStyleSheet("""QLabel { background-color: green; color: white; padding: 2px;}""")
+            else:
+                Qlabel_root.setStyleSheet("""QLabel { padding: 2px;}""")
             rw_text = "On" if data["rw_mode"] == constants.MODE_READWRITE else "Off"
 
             self.instance_layout.addWidget(checkbox, row, 0)
             self.instance_layout.addWidget(QLabel(data["display_name"]), row, 1)
-            self.instance_layout.addWidget(QLabel(f"Root: {root_text}"), row, 2)
+            self.instance_layout.addWidget(Qlabel_root, row, 2)
             self.instance_layout.addWidget(QLabel(f"R/W: {rw_text}"), row, 3)
             self.instance_checkboxes[unique_id] = {"checkbox": checkbox}
 
