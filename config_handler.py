@@ -152,6 +152,6 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
 
     except Exception:
         logger.exception(f"Error reading config file {config_path} for root statuses.")
-        return {"global_status": False, "instance_statuses": {}}
+        return {"global_status": False, "instance_statuses": {}, "display_names": {}}
 
     return {"global_status": global_status, "instance_statuses": instance_statuses, "display_names": display_names}
