@@ -94,6 +94,8 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
         A dictionary like: {'global_status': bool, 'instance_statuses': {name: bool}}
     """
     instance_statuses: dict[str, bool] = {}
+    display_names: dict[str, bool] = {}
+
     global_status: bool = False
 
     if not os.path.isfile(config_path):
@@ -111,6 +113,16 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
         + r'\s*=\s*"([^"]*)"',
         re.IGNORECASE,
     )
+
+    instance_pattern_name = re.compile(
+        r"^"
+        + re.escape(constants.INSTANCE_PREFIX)
+        + r"([^.]+)"
+        + re.escape(constants.DISPLAY_NAME_KEY)
+        + r'\s*=\s*"([^"]*)"',
+        re.IGNORECASE,
+    )
+
     global_pattern = re.compile(
         r"^" + re.escape(constants.FEATURE_ROOTING_KEY) + r'\s*=\s*"1"', re.IGNORECASE
     )
@@ -131,8 +143,15 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
                     instance_name, value = match.group(1), match.group(2)
                     is_enabled = value == "1"
                     instance_statuses[instance_name] = is_enabled
+
+                # Check for instance display name key
+                match_name = instance_pattern_name.match(stripped_line)
+                if match_name:
+                    instance_name, value = match_name.group(1), match_name.group(2)
+                    display_names[instance_name] = value
+
     except Exception:
         logger.exception(f"Error reading config file {config_path} for root statuses.")
         return {"global_status": False, "instance_statuses": {}}
 
-    return {"global_status": global_status, "instance_statuses": instance_statuses}
+    return {"global_status": global_status, "instance_statuses": instance_statuses, "display_names": display_names}
