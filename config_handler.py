@@ -94,7 +94,7 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
         A dictionary like: {'global_status': bool, 'instance_statuses': {name: bool}}
     """
     instance_statuses: dict[str, bool] = {}
-    display_names: dict[str, bool] = {}
+    display_names: dict[str, str] = {}
 
     global_status: bool = False
 
