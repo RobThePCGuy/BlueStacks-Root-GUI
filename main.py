@@ -252,7 +252,7 @@ class BluestacksRootToggle(QWidget):
             patch_mode = inst.get("patch_mode", False)  # 5.22.150.1014+ uses the patches
             root_info = config_handler.get_complete_root_statuses(config_path)
             instance_root_statuses = root_info['instance_statuses']
-            display_names = root_info['display_names']
+            display_names = root_info.get('display_names', {})
 
             disk_instances = {entry for entry in (os.listdir(data_path) if os.path.isdir(data_path) else []) if os.path.isdir(os.path.join(data_path, entry))}
             all_instance_names = set(instance_root_statuses.keys()) | disk_instances
