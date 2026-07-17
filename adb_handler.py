@@ -160,3 +160,26 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
         "\"Apps and ADB\" and try again. The zip was also copied to the "
         "instance's Download folder -- or flash it there: Modules -> Install "
         "from storage -> Download." % (out or "unknown error"))
+
+
+def list_running_instances(adb_exe: str, instances, runner: Runner = _run) -> dict:
+    """Which of ``instances`` are currently reachable over ADB.
+
+    ``instances`` is an iterable of (unique_id, config_path, original_name).
+    Returns {unique_id: port} for every instance whose configured ADB port
+    is currently connected. Instances with no recorded port (never booted)
+    are skipped without spawning a process.
+    """
+    running = {}
+    for unique_id, config_path, name in instances:
+        port = instance_adb_port(config_path, name)
+        if port is None:
+            continue
+        try:
+            cp = runner([adb_exe, "connect", "127.0.0.1:%d" % port])
+            out = (cp.stdout or "") + (cp.stderr or "")
+            if "connected" in out.lower():
+                running[unique_id] = port
+        except Exception as exc:  # noqa: BLE001 - one bad instance mustn't abort the rest
+            logger.warning("ADB probe failed for %s: %s", unique_id, exc)
+    return running
