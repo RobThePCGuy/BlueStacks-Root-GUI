@@ -70,6 +70,15 @@ REGEX_BSTK_READONLY_PATTERN = re.compile(
 )
 
 
+# modrm bytes for a RIP-relative `lea rXX, [rip+rel32]` (48/4C 8D <modrm> rel32),
+# one entry per general-purpose destination register (mod=00, rm=101, reg=0..7).
+# Shared by su_patch.py and integrity_patch.py so their two `lea`-scanners can't
+# drift into recognizing different register subsets (see issue #49: su_patch's
+# locator only accepted rax/rcx/rsi/rdi, silently missing an su binary whose
+# isDeveloperMode() lea happened to target rdx/rbx/rbp).
+RIP_LEA_MODRM = frozenset({0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D})
+
+
 BLUESTACKS_PROCESS_NAMES = [
     "HD-Player.exe",
     # Must be terminated before patching: the engine patch rewrites

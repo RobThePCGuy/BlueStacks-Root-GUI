@@ -49,6 +49,8 @@ import sys
 from dataclasses import dataclass
 from typing import Callable
 
+import constants
+
 logger = logging.getLogger(__name__)
 
 # Backup suffix appended next to the original executable before patching.
@@ -190,14 +192,12 @@ def _locate_isdiskverify(data: bytes) -> list[int]:
         return []
     str_va = image_base + str_rva
 
-    # rip-relative lea modrm bytes (reg in bits 3-5, mod=00 rm=101)
-    rip_modrm = {0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D}
     i = 0
     while True:
         i = data.find(b"\x8D", i)
         if i < 0 or i + 5 > len(data):
             break
-        if i >= 1 and data[i - 1] in (0x48, 0x4C) and data[i + 1] in rip_modrm:
+        if i >= 1 and data[i - 1] in (0x48, 0x4C) and data[i + 1] in constants.RIP_LEA_MODRM:
             lea_off = i - 1
             lea_rva = file_offset_to_rva(sections, lea_off)
             if lea_rva is not None:
