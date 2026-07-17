@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QMessageBox,
     QFileDialog,
+    QScrollArea,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QIcon
@@ -114,16 +115,38 @@ class BluestacksRootToggle(QWidget):
         self.path_label.setWordWrap(True)
         main_layout.addWidget(self.path_label)
 
+        # Instances group box
         self.instance_group = QGroupBox("Instances")
-        self.instance_layout = QGridLayout()
+        instance_group_layout = QVBoxLayout(self.instance_group)
+
+        # Scroll area inside the group box
+        self.instance_scroll_area = QScrollArea()
+        self.instance_scroll_area.setWidgetResizable(True)
+        self.instance_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.instance_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.instance_scroll_area.setMaximumHeight(1600)
+        #self.instance_scroll_area.setMinimumHeight(800)
+        #self.instance_scroll_area.setMinimumWidth(1000)
+
+        # Widget that contains the QGridLayout
+        self.instance_container = QWidget()
+        self.instance_layout = QGridLayout(self.instance_container)
+
+        # define our columns in the grid (instance ID, display name, Root, R/W)
         self.instance_layout.setColumnStretch(0, 3)
         self.instance_layout.setColumnStretch(1, 4)
         self.instance_layout.setColumnStretch(2, 1)
         self.instance_layout.setColumnStretch(3, 1)
         self.instance_layout.setHorizontalSpacing(10)
-        self.instance_group.setLayout(self.instance_layout)
+
+        # Put the grid container inside the scroll area
+        self.instance_scroll_area.setWidget(self.instance_container)
+
+        # Put the scroll area inside the group box
+        instance_group_layout.addWidget(self.instance_scroll_area)
         main_layout.addWidget(self.instance_group)
 
+        # Bottom buttons remain outside the scroll area
         button_layout = QHBoxLayout()
         self.root_toggle_button = QPushButton("Toggle Root")
         self.root_toggle_button.clicked.connect(self.handle_toggle_root)
@@ -164,7 +187,8 @@ class BluestacksRootToggle(QWidget):
         main_layout.addWidget(self.status_label)
 
         self.setLayout(main_layout)
-        self.setMinimumWidth(550)
+        self.setMinimumSize(650, 450)
+        self.resize(1000, 800)
 
     def initialize_paths_and_instances(self) -> None:
         logger.info("Initializing BlueStacks paths and instances...")
