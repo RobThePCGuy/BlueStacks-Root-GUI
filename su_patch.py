@@ -40,6 +40,8 @@ import shutil
 import struct
 import sys
 
+import constants
+
 logger = logging.getLogger(__name__)
 
 DEVMODE_STRING = b"isDeveloperMode: Function started.\x00"
@@ -108,7 +110,7 @@ def _find_isdevmode_entry(data: bytes) -> int | None:
             i = data.find(b"\x8d", i)
             if i < 0 or i + 5 > len(data):
                 break
-            if i >= 1 and data[i - 1] in (0x48, 0x4C) and data[i + 1] in (0x05, 0x0D, 0x3D, 0x35):
+            if i >= 1 and data[i - 1] in (0x48, 0x4C) and data[i + 1] in constants.RIP_LEA_MODRM:
                 rel = struct.unpack_from("<i", data, i + 2)[0]
                 lea_off = i - 1
                 lea_vaddr = _off_to_vaddr(segs, lea_off)
