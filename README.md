@@ -110,7 +110,7 @@ This is the path for current BlueStacks. You get root for apps without touching 
 
 1. **Create the instance first** - if it's a brand-new install, open BlueStacks once so it builds and boots your instance, then close it. The guest `su` only appears in `Data.vhdx` after the first boot.
 2. **Patch the engine (once per install)** - click **"Patch BlueStacks Engine (required for root)"** → **Yes**. All BlueStacks processes are closed first, then `HD-Player.exe` and `HD-MultiInstanceManager.exe` are patched and backed up.
-3. **Toggle root (per instance)** - tick the instance and click **"Toggle Root."** This sets the root flags and patches the guest `su` inside `Data.vhdx`. If it reports that `su` isn't there yet, boot the instance once and toggle again.
+3. **Toggle root (per instance)** - tick the instance and click **"Toggle Root."** This sets the root flags and patches the guest `su` inside `Data.vhdx`. **Watch the status text at the bottom of the window** - it walks through "Part 1/2: enabling root access..." then "Part 2/2: patching guest su in Data.vhdx..." before the button becomes usable again. If you launch the instance while that's still running, it'll fail; wait for it to finish. If it reports `su` isn't there yet, a dialog will tell you to boot the instance once and toggle again.
 4. **Restart the instance** - start it from BlueStacks. It should boot with **no** security/tamper popup, and root-checker apps (or Kitsune Mask / Magisk) will see root.
 
 > [!TIP]
