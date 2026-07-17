@@ -293,6 +293,7 @@ class MainWindow(QWidget):
             patch_mode = inst.get("patch_mode", False)
             root_info = config_handler.get_complete_root_statuses(config_path)
             instance_root_statuses = root_info['instance_statuses']
+            display_names = root_info.get('display_names', {})
 
             disk_instances = set()
             if os.path.isdir(data_path):
@@ -333,6 +334,7 @@ class MainWindow(QWidget):
                     "rw_mode": rw_mode,
                     "root_enabled": effective_root_status,
                     "individual_root_status": individual_root_on,
+                    "display_name": display_names.get(name, name),
                     "patch_mode": patch_mode,
                 }
 

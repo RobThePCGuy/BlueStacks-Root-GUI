@@ -5,6 +5,7 @@ import re
 
 INSTANCE_PREFIX = "bst.instance."
 ENABLE_ROOT_KEY = ".enable_root_access"
+DISPLAY_NAME_KEY = ".display_name"
 FEATURE_ROOTING_KEY = "bst.feature.rooting"
 BLUESTACKS_CONF_FILENAME = "bluestacks.conf"
 

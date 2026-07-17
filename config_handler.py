@@ -91,16 +91,19 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
         config_path: Path to the bluestacks.conf file.
 
     Returns:
-        A dictionary like: {'global_status': bool, 'instance_statuses': {name: bool}}
+        A dictionary like:
+        {'global_status': bool, 'instance_statuses': {name: bool}, 'display_names': {name: str}}
     """
     instance_statuses: dict[str, bool] = {}
+    display_names: dict[str, str] = {}
     global_status: bool = False
+    empty_result = {"global_status": False, "instance_statuses": {}, "display_names": {}}
 
     if not os.path.isfile(config_path):
         logger.warning(
             f"Config file not found for reading root statuses: {config_path}"
         )
-        return {"global_status": False, "instance_statuses": {}}
+        return empty_result
 
     # FIX: Regex for both instance-specific and global root keys
     instance_pattern = re.compile(
@@ -108,6 +111,14 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
         + re.escape(constants.INSTANCE_PREFIX)
         + r"([^.]+)"
         + re.escape(constants.ENABLE_ROOT_KEY)
+        + r'\s*=\s*"([^"]*)"',
+        re.IGNORECASE,
+    )
+    display_name_pattern = re.compile(
+        r"^"
+        + re.escape(constants.INSTANCE_PREFIX)
+        + r"([^.]+)"
+        + re.escape(constants.DISPLAY_NAME_KEY)
         + r'\s*=\s*"([^"]*)"',
         re.IGNORECASE,
     )
@@ -131,8 +142,18 @@ def get_complete_root_statuses(config_path: str) -> dict[str, Any]:
                     instance_name, value = match.group(1), match.group(2)
                     is_enabled = value == "1"
                     instance_statuses[instance_name] = is_enabled
+
+                # Check for instance display-name key
+                name_match = display_name_pattern.match(stripped_line)
+                if name_match:
+                    instance_name, value = name_match.group(1), name_match.group(2)
+                    display_names[instance_name] = value
     except Exception:
         logger.exception(f"Error reading config file {config_path} for root statuses.")
-        return {"global_status": False, "instance_statuses": {}}
+        return empty_result
 
-    return {"global_status": global_status, "instance_statuses": instance_statuses}
+    return {
+        "global_status": global_status,
+        "instance_statuses": instance_statuses,
+        "display_names": display_names,
+    }
