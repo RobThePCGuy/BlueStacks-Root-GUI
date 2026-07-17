@@ -1,10 +1,10 @@
 """Instances page: instance grid + Toggle Root/R-W + patch-gating banner."""
 from __future__ import annotations
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QGridLayout, QGroupBox, QCheckBox, QLabel,
-    QPushButton, QHBoxLayout,
+    QPushButton, QHBoxLayout, QScrollArea,
 )
 
 import constants
@@ -32,13 +32,26 @@ class InstancesPage(QWidget):
         layout.addLayout(banner_row)
         self.set_engine_locked_banner(False)
 
+        # Instances group box: a scroll area wraps the grid so large instance
+        # counts (20+) don't force the window taller than the screen.
         self.instance_group = QGroupBox("Instances")
-        self.instance_layout = QGridLayout()
-        self.instance_layout.setColumnStretch(0, 4)
-        self.instance_layout.setColumnStretch(1, 1)
+        instance_group_layout = QVBoxLayout(self.instance_group)
+
+        self.instance_scroll_area = QScrollArea()
+        self.instance_scroll_area.setWidgetResizable(True)
+        self.instance_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.instance_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        self.instance_container = QWidget()
+        self.instance_layout = QGridLayout(self.instance_container)
+        self.instance_layout.setColumnStretch(0, 3)
+        self.instance_layout.setColumnStretch(1, 4)
         self.instance_layout.setColumnStretch(2, 1)
+        self.instance_layout.setColumnStretch(3, 1)
         self.instance_layout.setHorizontalSpacing(15)
-        self.instance_group.setLayout(self.instance_layout)
+
+        self.instance_scroll_area.setWidget(self.instance_container)
+        instance_group_layout.addWidget(self.instance_scroll_area)
         layout.addWidget(self.instance_group)
 
         button_row = QHBoxLayout()
@@ -73,11 +86,21 @@ class InstancesPage(QWidget):
             data = instance_data[unique_id]
             checkbox = QCheckBox(unique_id)
             checkbox.setChecked(unique_id in previous_selection)
-            root_text = "On" if data.get("root_enabled") else "Off"
+            display_name = data.get("display_name", unique_id)
+            root_on = bool(data.get("root_enabled"))
+            root_text = "On" if root_on else "Off"
             rw_text = "On" if data.get("rw_mode") == constants.MODE_READWRITE else "Off"
+
+            root_label = QLabel("Root: %s" % root_text)
+            if root_on:
+                root_label.setStyleSheet("background-color: green; color: white; padding: 2px;")
+            else:
+                root_label.setStyleSheet("padding: 2px;")
+
             self.instance_layout.addWidget(checkbox, row, 0)
-            self.instance_layout.addWidget(QLabel("Root: %s" % root_text), row, 1)
-            self.instance_layout.addWidget(QLabel("R/W: %s" % rw_text), row, 2)
+            self.instance_layout.addWidget(QLabel(display_name), row, 1)
+            self.instance_layout.addWidget(root_label, row, 2)
+            self.instance_layout.addWidget(QLabel("R/W: %s" % rw_text), row, 3)
             self.checkboxes[unique_id] = checkbox
 
     def selected_ids(self) -> list[str]:
