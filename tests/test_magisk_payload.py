@@ -14,14 +14,17 @@ import magisk_payload as mp
 
 
 def _make_synthetic_apk(path):
-    """Build a zip shaped like the real APK's lib/<abi>/lib*.so layout, with each
-    member's bytes tagged by its abi+soname so extraction can be checked."""
+    """Build a zip shaped like the real APK's lib/<abi>/lib*.so + assets/ layout,
+    with each member's bytes tagged so extraction can be checked."""
     with zipfile.ZipFile(path, "w") as z:
         for _tool, (abi, soname) in mp._TOOLS.items():
             z.writestr("lib/%s/%s" % (abi, soname), b"ELF:" + abi.encode() + b"/" + soname.encode())
         # decoys that must NOT be extracted (wrong abi for a given tool)
         z.writestr("lib/arm64-v8a/libmagisk64.so", b"WRONG-ABI")
-        z.writestr("assets/util_functions.sh", b"# not a tool")
+        # DATABIN extras (util scripts, chromeos keys, stub) + a decoy asset
+        for _rel, member in mp._DATABIN_EXTRAS.items():
+            z.writestr(member, b"ASSET:" + member.encode())
+        z.writestr("assets/uninstaller.sh", b"# not a DATABIN extra")
 
 
 def test_extract_tools_writes_every_tool_unwrapped(tmp_path):
@@ -49,6 +52,39 @@ def test_extract_pulls_magisk64_from_x64_and_magisk32_from_x86(tmp_path):
 
     assert (out / "magisk64").read_bytes() == b"ELF:x86_64/libmagisk64.so"
     assert (out / "magisk32").read_bytes() == b"ELF:x86/libmagisk32.so"
+
+
+def test_extract_databin_extras_pulls_scripts_and_chromeos_subdir(tmp_path):
+    apk = tmp_path / "synthetic.apk"
+    _make_synthetic_apk(apk)
+    out = tmp_path / "databin"
+
+    extras = mp.extract_databin_extras(str(apk), str(out))
+
+    # every declared extra came out, keyed by its DATABIN-relative path
+    assert set(extras) == set(mp._DATABIN_EXTRAS)
+    # util_functions.sh -- the module-install gate -- must be present
+    assert "util_functions.sh" in extras
+    # chromeos/* keeps its subdir on disk, and content matches the APK member
+    fut = out / "chromeos" / "futility"
+    assert fut.is_file()
+    assert fut.read_bytes() == b"ASSET:assets/chromeos/futility"
+    assert extras["chromeos/futility"] == str(fut)
+
+
+def test_extract_databin_extras_missing_member_raises_and_cleans_partial(tmp_path):
+    apk = tmp_path / "bad.apk"
+    rels = list(mp._DATABIN_EXTRAS.items())
+    with zipfile.ZipFile(apk, "w") as z:  # write all extras EXCEPT the last
+        for _rel, member in rels[:-1]:
+            z.writestr(member, b"x")
+    out = tmp_path / "databin"
+
+    with pytest.raises(RuntimeError, match="missing"):
+        mp.extract_databin_extras(str(apk), str(out))
+
+    # no half-populated dir left behind (walk: only empty dirs, no files)
+    assert not any(p.is_file() for p in out.rglob("*"))
 
 
 def test_fetch_apk_returns_cached_when_hash_matches(tmp_path, monkeypatch):

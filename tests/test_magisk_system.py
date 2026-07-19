@@ -51,6 +51,16 @@ def _fake_run(stdout):
     return lambda *a, **k: SimpleNamespace(stdout=stdout, stderr="", returncode=0)
 
 
+def _dir_listing_run(listings):
+    """Fake ``_es._run`` that answers each ``ls -l <dir>`` from ``listings``
+    (a ``{ext4_dir: output}`` map) -- so recursion into subdirs can be tested."""
+    def run(cmd, env=None, **k):
+        arg = next((c for c in cmd if isinstance(c, str) and c.startswith("ls -l ")), "")
+        return SimpleNamespace(stdout=listings.get(arg[len("ls -l "):], ""),
+                               stderr="", returncode=0)
+    return run
+
+
 def test_list_databin_parses_names_skipping_dots_and_symlink_targets(monkeypatch):
     sample = "\n".join([
         " 3801090   40700 (2)   0   0   4096 19-Jul-2026 12:38 .",
@@ -67,6 +77,85 @@ def test_clean_dir_commands_removes_actual_contents_then_rmdir(monkeypatch):
         " 1 100755 (1) 0 0 5 d t foo\n 2 100755 (1) 0 0 5 d t bar\n"))
     assert ms._clean_dir_commands("dev", "/x/y", {}) == [
         "rm /x/y/foo", "rm /x/y/bar", "rmdir /x/y"]
+
+
+def test_list_dir_typed_flags_directories_not_files_or_symlinks(monkeypatch):
+    sample = "\n".join([
+        " 1  40755 (2)   0   0   4096 19-Jul-2026 12:38 chromeos",   # dir
+        " 2 100755 (1)   0   0   5    19-Jul-2026 12:38 busybox",    # file
+        " 3 120777 (7)   0   0   9    19-Jul-2026 12:38 s -> busybox",  # symlink
+    ])
+    monkeypatch.setattr(ms._es, "_run", _fake_run(sample))
+    assert ms._list_dir_typed("dev", "/x", {}) == [
+        ("chromeos", True), ("busybox", False), ("s", False)]
+
+
+def test_clean_dir_commands_recurses_subdir_before_parent_rmdir(monkeypatch):
+    listings = {
+        "/adb/magisk": "\n".join([
+            " 1 100755 (1) 0 0 5 d t busybox",
+            " 2 100755 (1) 0 0 5 d t util_functions.sh",
+            " 3  40755 (2) 0 0 4096 d t chromeos",
+        ]),
+        "/adb/magisk/chromeos": "\n".join([
+            " 4 100755 (1) 0 0 5 d t futility",
+            " 5 100644 (1) 0 0 5 d t kernel.keyblock",
+        ]),
+    }
+    monkeypatch.setattr(ms._es, "_run", _dir_listing_run(listings))
+    # subdir is emptied + rmdir'd before the parent rmdir (rm won't remove a dir)
+    assert ms._clean_dir_commands("dev", "/adb/magisk", {}) == [
+        "rm /adb/magisk/busybox",
+        "rm /adb/magisk/util_functions.sh",
+        "rm /adb/magisk/chromeos/futility",
+        "rm /adb/magisk/chromeos/kernel.keyblock",
+        "rmdir /adb/magisk/chromeos",
+        "rmdir /adb/magisk",
+    ]
+
+
+def test_databin_extra_commands_writes_scripts_and_chromeos_subdir():
+    extras = {
+        "util_functions.sh": r"C:\d\util_functions.sh",
+        "stub.apk": r"C:\d\stub.apk",
+        "chromeos/futility": r"C:\d\chromeos\futility",
+        "chromeos/kernel.keyblock": r"C:\d\chromeos\kernel.keyblock",
+    }
+    cmds = ms._databin_extra_commands(extras)
+    db = ms._DATABIN
+    cs = "%s/chromeos" % db
+
+    # top-level files: cd into DATABIN, then quoted-source bare-name writes
+    assert "cd %s" % db in cmds
+    assert 'write "/cygdrive/c/d/util_functions.sh" util_functions.sh' in cmds
+    for i, c in enumerate(cmds):
+        if c.startswith("write "):
+            assert c.count('"') == 2 and "/" not in c.split()[-1]  # quoted src, bare dest
+    # scripts are exec (0755), the stub is data (0644)
+    assert "sif %s/util_functions.sh mode 0100755" % db in cmds
+    assert "sif %s/stub.apk mode 0100644" % db in cmds
+    # chromeos subdir made 0755 root, cd'd into before its writes
+    assert "mkdir %s" % cs in cmds
+    assert "sif %s mode 040755" % cs in cmds
+    cd_cs = cmds.index("cd %s" % cs)
+    wf = cmds.index('write "/cygdrive/c/d/chromeos/futility" futility')
+    assert wf > cd_cs
+    assert "sif %s/futility mode 0100755" % cs in cmds        # binary -> exec
+    assert "sif %s/kernel.keyblock mode 0100644" % cs in cmds  # key -> data
+
+
+def test_verify_staged_checks_extras_mode_and_owner(monkeypatch):
+    stats = {
+        "busybox": "Inode: 5 Type: regular Mode:  0755\nUser:  0 Group:  0",
+        "util_functions.sh": "Inode: 6 Type: regular Mode:  0755\nUser:  0 Group:  0",
+        "stub.apk": "Inode: 7 Type: regular Mode:  0755\nUser:  0 Group:  0",  # wrong: data=0644
+        "futility": "Inode: 8 Type: regular Mode:  0755\nUser:  0 Group:  0",
+    }
+    monkeypatch.setattr(ms._es, "_stat_path",
+                        lambda dev, path, env: stats[path.rsplit("/", 1)[-1]])
+    bad = ms._verify_staged("dev", {"busybox": ""}, {},
+                            {"util_functions.sh": "", "stub.apk": "", "chromeos/futility": ""})
+    assert bad == ["stub.apk"]
 
 
 def test_system_write_commands_footprint_and_perms():

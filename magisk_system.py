@@ -62,6 +62,17 @@ _MANIFEST_NAME = ".magisk_system.json"  # host sidecar next to Data.vhdx
 # Tools that must be executable in DATABIN. busybox is the daemon's hard gate.
 _EXEC_TOOLS = ("busybox", "magisk32", "magisk64", "magiskinit", "magiskpolicy", "magiskboot")
 
+# DATABIN "extras" (from the APK assets/, via magisk_payload.extract_databin_extras)
+# that are data, not executables -- everything else in the DATABIN is 0755.
+_DATABIN_DATA_FILES = ("stub.apk", "kernel.keyblock", "kernel_data_key.vbprivk")
+
+
+def _databin_mode(basename: str) -> str:
+    """debugfs ``sif mode`` for a DATABIN file: scripts/binaries are 0755, the
+    few data files (stub.apk, chromeos keys) are 0644 -- matching Magisk's own
+    ``chmod -R 755`` of MAGISKBIN with data blobs left non-exec."""
+    return "0100644" if basename in _DATABIN_DATA_FILES else "0100755"
+
 # debugfs output substrings that mean a command in the script failed.
 _ERR_MARKERS = ("File not found", "no such", "Invalid", "Bad ", "No space",
                 "not enough", "Could not", "error while")
@@ -153,11 +164,15 @@ def _errtail(out: str) -> str:
     return " | ".join(lines[-6:]) if lines else (out.strip()[-200:] or "(no output)")
 
 
-def _list_dir(device: str, ext4_dir: str, env: dict) -> list[str]:
-    """Names currently inside ``ext4_dir`` (empty if it's absent)."""
+def _list_dir_typed(device: str, ext4_dir: str, env: dict) -> list[tuple[str, bool]]:
+    """``(name, is_dir)`` for each entry in ``ext4_dir`` (empty if it's absent).
+
+    ``is_dir`` comes from the debugfs ``ls -l`` mode column (a directory's octal
+    mode starts with ``40``, e.g. ``40755``; regular files are ``100xxx``,
+    symlinks ``120xxx``)."""
     out = _es._run([_es._debugfs(), "-R", "ls -l %s" % ext4_dir, device],
                    env=env).stdout or ""
-    names: list[str] = []
+    entries: list[tuple[str, bool]] = []
     for line in out.splitlines():
         parts = line.split()
         if not parts:
@@ -166,14 +181,30 @@ def _list_dir(device: str, ext4_dir: str, env: dict) -> list[str]:
         name = parts[parts.index("->") - 1] if "->" in parts else parts[-1]
         if name in (".", ".."):
             continue
-        names.append(name)
-    return names
+        mode = parts[1] if len(parts) > 1 else ""
+        entries.append((name, mode.startswith("40")))
+    return entries
+
+
+def _list_dir(device: str, ext4_dir: str, env: dict) -> list[str]:
+    """Names currently inside ``ext4_dir`` (empty if it's absent)."""
+    return [name for name, _ in _list_dir_typed(device, ext4_dir, env)]
 
 
 def _clean_dir_commands(device: str, ext4_dir: str, env: dict) -> list[str]:
     """debugfs commands to remove whatever is *actually* in ``ext4_dir`` and then
-    the dir itself -- covers a prior/foreign install, not just our own names."""
-    cmds = ["rm %s/%s" % (ext4_dir, n) for n in _list_dir(device, ext4_dir, env)]
+    the dir itself -- covers a prior/foreign install, not just our own names.
+
+    Recurses into subdirectories (e.g. the DATABIN's ``chromeos/``): ``rm`` only
+    unlinks files, so a subdir must be emptied and ``rmdir``'d before its parent,
+    or the parent ``rmdir`` fails on a non-empty dir."""
+    cmds: list[str] = []
+    for name, is_dir in _list_dir_typed(device, ext4_dir, env):
+        child = "%s/%s" % (ext4_dir, name)
+        if is_dir:
+            cmds += _clean_dir_commands(device, child, env)  # empties + rmdirs child
+        else:
+            cmds.append("rm %s" % child)
     cmds.append("rmdir %s" % ext4_dir)
     return cmds
 
@@ -196,18 +227,64 @@ def _write_commands(tools: dict[str, str]) -> list[str]:
     return cmds
 
 
-def _verify_staged(device: str, tools: dict[str, str], env: dict) -> list[str]:
-    """Return the names of tools that are NOT correctly staged (regular file,
-    root-owned, expected mode).  Empty list == every tool verified."""
+def _databin_extra_commands(extras: dict[str, str]) -> list[str]:
+    """debugfs commands to add the full-DATABIN "extras" (util scripts, the
+    chromeos signing keys, stub.apk) alongside the binaries written by
+    ``_write_commands``.  ``extras`` maps DATABIN-relative path -> host path
+    (from ``magisk_payload.extract_databin_extras``); ``chromeos/...`` entries
+    land in a created subdir.  Same debugfs quirk: ``write`` links its dest as a
+    bare name in the CWD, so we ``cd`` into each dir and write bare names."""
+    top: dict[str, str] = {}
+    subdirs: dict[str, dict[str, str]] = {}
+    for rel, hostpath in extras.items():
+        sub, _, base = rel.rpartition("/")
+        (subdirs.setdefault(sub, {}) if sub else top)[base] = hostpath
+
+    cmds: list[str] = []
+    if top:
+        cmds.append("cd %s" % _DATABIN)
+        for base, hostpath in sorted(top.items()):
+            dst = "%s/%s" % (_DATABIN, base)
+            cmds += ["write %s %s" % (_dq(_cygpath(hostpath)), base),  # quoted src, bare dest
+                     "sif %s mode %s" % (dst, _databin_mode(base)),
+                     "sif %s uid 0" % dst, "sif %s gid 0" % dst]
+    for sub in sorted(subdirs):
+        subpath = "%s/%s" % (_DATABIN, sub)
+        cmds += ["mkdir %s" % subpath, "sif %s mode 040755" % subpath,
+                 "sif %s uid 0" % subpath, "sif %s gid 0" % subpath, "cd %s" % subpath]
+        for base, hostpath in sorted(subdirs[sub].items()):
+            dst = "%s/%s" % (subpath, base)
+            cmds += ["write %s %s" % (_dq(_cygpath(hostpath)), base),
+                     "sif %s mode %s" % (dst, _databin_mode(base)),
+                     "sif %s uid 0" % dst, "sif %s gid 0" % dst]
+        cmds.append("ea_set %s security.selinux %s" % (subpath, _SELINUX_CTX))
+    return cmds
+
+
+def _stat_is_regular_root(st: str, want_mode: str) -> bool:
+    """True if a debugfs stat shows a regular file, root-owned, at ``want_mode``
+    (e.g. ``"0755"``)."""
+    return bool("Inode:" in st and "Type: regular" in st
+                and re.search(r"Mode:\s+%s\b" % want_mode, st)
+                and re.search(r"User:\s+0\b", st) and re.search(r"Group:\s+0\b", st))
+
+
+def _verify_staged(device: str, tools: dict[str, str], env: dict,
+                   extras: dict[str, str] | None = None) -> list[str]:
+    """Return the DATABIN entries that are NOT correctly staged (regular file,
+    root-owned, expected mode).  Checks the binaries and, if given, the extras
+    (scripts + chromeos/* + stub.apk).  Empty list == everything verified."""
     bad: list[str] = []
     for name in tools:
         st = _es._stat_path(device, "%s/%s" % (_DATABIN, name), env)
         want = "0755" if name in _EXEC_TOOLS else "0644"
-        ok = ("Inode:" in st and "Type: regular" in st
-              and re.search(r"Mode:\s+%s\b" % want, st)
-              and re.search(r"User:\s+0\b", st) and re.search(r"Group:\s+0\b", st))
-        if not ok:
+        if not _stat_is_regular_root(st, want):
             bad.append(name)
+    for rel in (extras or {}):
+        st = _es._stat_path(device, "%s/%s" % (_DATABIN, rel), env)
+        want = "0644" if os.path.basename(rel) in _DATABIN_DATA_FILES else "0755"
+        if not _stat_is_regular_root(st, want):
+            bad.append(rel)
     return bad
 
 
@@ -247,18 +324,24 @@ def magisk_status(instance_dir: str) -> dict | None:
         return None
 
 
-def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> list[str]:
+def stage_databin(instance_dir: str, tools: dict[str, str],
+                  extras: dict[str, str] | None = None, progress=None) -> list[str]:
     """Write Magisk's DATABIN (``/data/adb/magisk``) into the instance's Data.vhdx.
 
-    ``tools`` maps tool name -> host file path (from ``magisk_payload.extract_tools``).
-    All-or-nothing: every tool is verified, and a failure rolls back the partial
-    DATABIN.  Returns status lines; raises on hard failure.
+    ``tools`` maps tool name -> host path (``magisk_payload.extract_tools``);
+    ``extras`` maps DATABIN-relative path -> host path
+    (``magisk_payload.extract_databin_extras``: util scripts, chromeos keys,
+    stub).  With ``extras`` the DATABIN is *complete* -- ``util_functions.sh`` is
+    present, so ``magisk --install-module`` no longer aborts "Incomplete Magisk
+    install".  All-or-nothing: every file is verified, and a failure rolls back
+    the partial DATABIN.  Returns status lines; raises on hard failure.
     """
     def _p(msg: str) -> None:
         logger.info(msg)
         if progress:
             progress(msg)
 
+    extras = extras or {}
     vhdx = _data_vhdx(instance_dir)
     if not _es.tools_available():
         raise RuntimeError("bundled e2fsprogs (debugfs) not found")
@@ -268,13 +351,16 @@ def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> li
         raise RuntimeError("payload missing busybox (the daemon's environment gate)")
 
     env = _es._tool_env()
+    total = len(tools) + len(extras)
     _p("Attaching Data.vhdx (staging Magisk binaries)...")
     with _es._Attached(vhdx) as att:
         dev = att.device
-        _p("Writing %d tools into %s..." % (len(tools), _DATABIN))
-        out = _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env) + _write_commands(tools), env)
+        _p("Writing %d DATABIN files into %s..." % (total, _DATABIN))
+        script = (_clean_dir_commands(dev, _DATABIN, env)
+                  + _write_commands(tools) + _databin_extra_commands(extras))
+        out = _es._run_script(dev, script, env)
         try:
-            bad = _verify_staged(dev, tools, env)
+            bad = _verify_staged(dev, tools, env, extras)
             if bad:
                 raise RuntimeError(
                     "staging incomplete -- not correctly written: %s (debugfs: %s)"
@@ -290,8 +376,9 @@ def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> li
                 logger.exception("rollback cleanup also failed")
             raise
     _write_manifest(instance_dir, ["databin"])
-    return ["Staged %d Magisk tools into /data/adb/magisk (all verified, busybox gate OK)"
-            % len(tools)]
+    gate = "busybox + util_functions.sh" if "util_functions.sh" in extras else "busybox gate"
+    return ["Staged %d DATABIN files into /data/adb/magisk (all verified, %s OK)"
+            % (total, gate)]
 
 
 def unstage_databin(instance_dir: str, progress=None) -> list[str]:
@@ -518,12 +605,14 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
     apk = _mp.fetch_apk(os.path.join(work, "cache"), progress=progress)
     tools = _mp.extract_tools(apk, os.path.join(work, "tools"), progress=progress)
     stub = _mp.extract_stub_apk(apk, os.path.join(work, "tools"))
+    extras = _mp.extract_databin_extras(apk, os.path.join(work, "databin"), progress=progress)
 
     results: list[str] = []
     results += install_to_system(instance_dir, tools, stub, progress=progress)
-    results += stage_databin(instance_dir, tools, progress=progress)
+    results += stage_databin(instance_dir, tools, extras=extras, progress=progress)
     _write_manifest(instance_dir, ["system", "databin", "manager"])
-    results.append("Magisk %s installed offline (system + DATABIN + manager)." % _mp.PAYLOAD_VERSION)
+    results.append("Magisk %s installed offline (system + complete DATABIN + manager)."
+                   % _mp.PAYLOAD_VERSION)
     return results
 
 

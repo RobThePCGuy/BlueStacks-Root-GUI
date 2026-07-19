@@ -55,6 +55,24 @@ _TOOLS = {
 # would otherwise write to /system/etc/init/magisk/stub.apk).
 STUB_APK_MEMBER = "assets/stub.apk"
 
+# APK assets/ that complete the DATABIN alongside the native binaries, so
+# /data/adb/magisk matches a real Magisk install and `magisk --install-module`
+# works.  Magisk aborts "Incomplete Magisk install" without util_functions.sh
+# (it defines the install_module function + every helper that calls).  These are
+# static build artifacts -- copied verbatim, version baked in (MAGISK_VER lives
+# inside util_functions.sh) -- so, like the binaries, they're derived from the
+# pinned APK, nothing captured.  Keys: DATABIN-relative path (chromeos/* keeps
+# the subdir).  Values: the APK member.
+_DATABIN_EXTRAS = {
+    "util_functions.sh": "assets/util_functions.sh",  # the module-install gate
+    "boot_patch.sh": "assets/boot_patch.sh",
+    "addon.d.sh": "assets/addon.d.sh",
+    "stub.apk": "assets/stub.apk",
+    "chromeos/futility": "assets/chromeos/futility",
+    "chromeos/kernel.keyblock": "assets/chromeos/kernel.keyblock",
+    "chromeos/kernel_data_key.vbprivk": "assets/chromeos/kernel_data_key.vbprivk",
+}
+
 
 def _sha256(path: str) -> str:
     h = hashlib.sha256()
@@ -151,3 +169,42 @@ def extract_stub_apk(apk_path: str, dest_dir: str) -> str:
         with z.open(STUB_APK_MEMBER) as src, open(dest, "wb") as dst:
             shutil.copyfileobj(src, dst)
     return dest
+
+
+def extract_databin_extras(apk_path: str, dest_dir: str, progress=None) -> dict[str, str]:
+    """Extract the non-binary DATABIN files (util scripts, chromeos signing keys,
+    stub) from the APK into ``dest_dir``, preserving the ``chromeos/`` subdir.
+
+    Returns ``{databin_relpath: host_path}`` (e.g. ``"chromeos/futility"``).
+    Combined with :func:`extract_tools`' binaries this yields a *complete*
+    ``/data/adb/magisk`` -- without ``util_functions.sh`` Magisk aborts
+    ``--install-module`` with "Incomplete Magisk install".
+    """
+    def _p(msg: str) -> None:
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    os.makedirs(dest_dir, exist_ok=True)
+    out: dict[str, str] = {}
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            members = set(z.namelist())
+            for rel, member in _DATABIN_EXTRAS.items():
+                if member not in members:
+                    raise RuntimeError(
+                        "payload is missing %s (expected %s in the APK)" % (rel, member))
+                target = os.path.join(dest_dir, rel.replace("/", os.sep))
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with z.open(member) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                out[rel] = target
+    except Exception:
+        for p in out.values():  # don't leave a half-populated dir behind
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        raise
+    _p("Extracted %d DATABIN support files (%s)." % (len(out), ", ".join(sorted(out))))
+    return out
