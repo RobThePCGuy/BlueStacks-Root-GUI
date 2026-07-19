@@ -313,8 +313,28 @@ def _system_write_commands(sysroot: str, srcs: dict[str, str]) -> list[str]:
     return cmds
 
 
+def _system_app_commands(sysroot: str, apk_src: str) -> list[str]:
+    """debugfs commands to preinstall the full Magisk manager as a system app at
+    ``<sysroot>/app/KitsuneMask/KitsuneMask.apk``.
+
+    Magisk's Install-to-System only writes a *stub* manager that self-downloads
+    the full UI from an (abandoned) URL -> it comes up greyed/non-functional
+    offline.  Shipping the real, pinned APK as a preinstalled system app means
+    PackageManager installs a working manager at boot, before magiskd's
+    boot-complete stub check, so no stub is ever needed.
+    """
+    appdir = "%s/app/KitsuneMask" % sysroot
+    dst = "%s/KitsuneMask.apk" % appdir
+    return ["rm %s" % dst, "rmdir %s" % appdir,          # clean any prior copy
+            "mkdir %s" % appdir, "sif %s mode 040755" % appdir,
+            "sif %s uid 1000" % appdir, "sif %s gid 1000" % appdir,
+            "cd %s" % appdir,
+            "write %s KitsuneMask.apk" % _dq(_cygpath(apk_src)),  # quoted src, bare dest
+            "sif %s mode 0100644" % dst, "sif %s uid 1000" % dst, "sif %s gid 1000" % dst]
+
+
 def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
-                      progress=None) -> list[str]:
+                      manager_apk: str | None = None, progress=None) -> list[str]:
     """Write Magisk's system-mode footprint into the instance's Root.vhd offline.
 
     ``tools`` provides the magisk binaries (magisk_payload.extract_tools);
@@ -345,6 +365,8 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
     for name, path in srcs.items():
         if not os.path.isfile(path):
             raise RuntimeError("missing source for %s: %s" % (name, path))
+    if manager_apk and not os.path.isfile(manager_apk):
+        raise RuntimeError("manager APK not found: %s" % manager_apk)
 
     env = _es._tool_env()
     _p("Attaching Root.vhd (installing Magisk to /system)...")
@@ -352,12 +374,19 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
         dev = att.device
         sysroot = _find_system_root(dev, env)
         magiskdir = "%s/etc/init/magisk" % sysroot
+        appdir = "%s/app/KitsuneMask" % sysroot
         _p("Writing Magisk system files under %s/etc/init ..." % sysroot)
         script = _clean_dir_commands(dev, magiskdir, env) + _system_write_commands(sysroot, srcs)
+        if manager_apk:
+            _p("Preinstalling the full Kitsune manager as a system app...")
+            script += _system_app_commands(sysroot, manager_apk)
         out = _es._run_script(dev, script, env)
         try:
-            for path in ("%s/config" % magiskdir, "%s/magisk64" % magiskdir,
-                         "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot):
+            checks = ["%s/config" % magiskdir, "%s/magisk64" % magiskdir,
+                      "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot]
+            if manager_apk:
+                checks.append("%s/KitsuneMask.apk" % appdir)
+            for path in checks:
                 if "Inode:" not in _es._stat_path(dev, path, env):
                     raise RuntimeError("system install incomplete: missing %s (debugfs: %s)"
                                        % (path, _errtail(out)))
@@ -367,7 +396,10 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
         except Exception:
             _p("System install failed -- rolling back...")
             try:
-                _es._run_script(dev, _clean_dir_commands(dev, magiskdir, env), env)
+                rb = _clean_dir_commands(dev, magiskdir, env)
+                if manager_apk:
+                    rb += _clean_dir_commands(dev, appdir, env)
+                _es._run_script(dev, rb, env)
             except Exception:
                 logger.exception("rollback cleanup also failed")
             raise
@@ -403,7 +435,8 @@ def uninstall_from_system(instance_dir: str, progress=None) -> list[str]:
             sysroot = _find_system_root(dev, env)
             initdir = "%s/etc/init" % sysroot
             magiskdir = "%s/magisk" % initdir
-            cmds = _clean_dir_commands(dev, magiskdir, env)
+            appdir = "%s/app/KitsuneMask" % sysroot
+            cmds = _clean_dir_commands(dev, magiskdir, env) + _clean_dir_commands(dev, appdir, env)
             cmds += ["rm %s/bootanim.rc.gz" % initdir]
             if original:  # restore the stock bootanim service
                 bo = "%s/bootanim.rc" % initdir
