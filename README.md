@@ -30,6 +30,7 @@
 - [Development](#development)
 - [Contributing](#contributing)
 - [Credits](#credits)
+- [License](#license)
 
 ---
 
@@ -313,6 +314,14 @@ Contributions are welcome! Please:
 
 - **Rooting the latest BlueStacks (patch mode):** the engine patch (`HD-Player.exe` + `HD-MultiInstanceManager.exe`) and the offline `Data.vhdx` guest-`su` patch that defeat the 5.22.150.1014+ integrity check were contributed by **[@AndnixSH](https://github.com/AndnixSH)** in [PR #27](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/pull/27). This tool automates that method; without it there'd be no root on current builds without downgrading.
 - **Maintainer:** [@RobThePCGuy](https://github.com/RobThePCGuy) — original GUI, the classic flag-based rooting, and the hardening around the patch-mode method (auto-kill Multi-Instance Manager, restore brick-guard, binary-provenance audit).
+
+## License
+
+Copyright (C) 2026 Rob Adams Jr ([RobThePCGuy](https://github.com/RobThePCGuy))
+
+This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0** as published by the Free Software Foundation. It is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY** — without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+In short: you're free to use, study, share, and modify it — but anything you redistribute has to stay open under GPLv3 and keep this attribution. Bundled third-party tools (e.g. `tools/e2fsprogs/`) keep their own upstream licenses; see that directory for details.
 
 ---
 
