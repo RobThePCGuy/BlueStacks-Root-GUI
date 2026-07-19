@@ -371,34 +371,22 @@ def _system_write_commands(sysroot: str, srcs: dict[str, str]) -> list[str]:
     return cmds
 
 
-def _system_app_commands(sysroot: str, apk_src: str) -> list[str]:
-    """debugfs commands to preinstall the full Magisk manager as a system app at
-    ``<sysroot>/app/KitsuneMask/KitsuneMask.apk``.
-
-    Magisk's Install-to-System only writes a *stub* manager that self-downloads
-    the full UI from an (abandoned) URL -> it comes up greyed/non-functional
-    offline.  Shipping the real, pinned APK as a preinstalled system app means
-    PackageManager installs a working manager at boot, before magiskd's
-    boot-complete stub check, so no stub is ever needed.
-    """
-    appdir = "%s/app/KitsuneMask" % sysroot
-    dst = "%s/KitsuneMask.apk" % appdir
-    return ["rm %s" % dst, "rmdir %s" % appdir,          # clean any prior copy
-            "mkdir %s" % appdir, "sif %s mode 040755" % appdir,
-            "sif %s uid 1000" % appdir, "sif %s gid 1000" % appdir,
-            "cd %s" % appdir,
-            "write %s KitsuneMask.apk" % _dq(_cygpath(apk_src)),  # quoted src, bare dest
-            "sif %s mode 0100644" % dst, "sif %s uid 1000" % dst, "sif %s gid 1000" % dst]
-
-
 def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
-                      manager_apk: str | None = None, progress=None) -> list[str]:
+                      progress=None) -> list[str]:
     """Write Magisk's system-mode footprint into the instance's Root.vhd offline.
 
     ``tools`` provides the magisk binaries (magisk_payload.extract_tools);
-    ``stub_path`` is stub.apk (magisk_payload.extract_stub_apk); config +
-    bootanim.rc + bootanim.rc.gz come from the pinned captured assets.
-    All-or-nothing: a partial magisk/ dir is rolled back on failure.
+    ``stub_path`` is the genuine stub.apk (magisk_payload.extract_stub_apk);
+    config + bootanim.rc + bootanim.rc.gz come from the pinned captured assets.
+    All-or-nothing.
+
+    Manager note: the full-featured manager is NOT installed here.  It must be
+    ``pm install``'d as a USER app after first boot -- three offline shortcuts
+    were tried and all fail: the real stub self-downloads its UI from a dead URL
+    (greyed); a manager in /system/app throws Magisk's "Abnormal State: system
+    app not supported"; and writing the full APK as stub.apk yields a broken,
+    unselectable app.  Offline root works without any manager; the app is just a
+    normal app installed via pm.
     """
     def _p(msg: str) -> None:
         logger.info(msg)
@@ -412,7 +400,7 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
     srcs = {"config": os.path.join(assets, "config"),
             "bootanim.rc": os.path.join(assets, "bootanim.rc"),
             "bootanim.rc.gz": os.path.join(assets, "bootanim.rc.gz"),
-            "stub.apk": stub_path}
+            "stub.apk": stub_path}  # genuine stub; real manager is pm-installed post-boot
     for name in _SYS_MAGISK_BINS:
         if name not in tools:
             raise RuntimeError("payload missing %s" % name)
@@ -420,8 +408,6 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
     for name, path in srcs.items():
         if not os.path.isfile(path):
             raise RuntimeError("missing source for %s: %s" % (name, path))
-    if manager_apk and not os.path.isfile(manager_apk):
-        raise RuntimeError("manager APK not found: %s" % manager_apk)
 
     env = _es._tool_env()
     _p("Attaching Root.vhd (installing Magisk to /system)...")
@@ -429,19 +415,12 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
         dev = att.device
         sysroot = _find_system_root(dev, env)
         magiskdir = "%s/etc/init/magisk" % sysroot
-        appdir = "%s/app/KitsuneMask" % sysroot
         _p("Writing Magisk system files under %s/etc/init ..." % sysroot)
         script = _clean_dir_commands(dev, magiskdir, env) + _system_write_commands(sysroot, srcs)
-        if manager_apk:
-            _p("Preinstalling the full Kitsune manager as a system app...")
-            script += _system_app_commands(sysroot, manager_apk)
         out = _es._run_script(dev, script, env)
         try:
-            checks = ["%s/config" % magiskdir, "%s/magisk64" % magiskdir,
-                      "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot]
-            if manager_apk:
-                checks.append("%s/KitsuneMask.apk" % appdir)
-            for path in checks:
+            for path in ("%s/config" % magiskdir, "%s/magisk64" % magiskdir,
+                         "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot):
                 if "Inode:" not in _es._stat_path(dev, path, env):
                     raise RuntimeError("system install incomplete: missing %s (debugfs: %s)"
                                        % (path, _errtail(out)))
@@ -451,10 +430,7 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
         except Exception:
             _p("System install failed -- rolling back...")
             try:
-                rb = _clean_dir_commands(dev, magiskdir, env)
-                if manager_apk:
-                    rb += _clean_dir_commands(dev, appdir, env)
-                _es._run_script(dev, rb, env)
+                _es._run_script(dev, _clean_dir_commands(dev, magiskdir, env), env)
             except Exception:
                 logger.exception("rollback cleanup also failed")
             raise
@@ -493,8 +469,7 @@ def uninstall_from_system(instance_dir: str, progress=None) -> list[str]:
             sysroot = _find_system_root(dev, env)
             initdir = "%s/etc/init" % sysroot
             magiskdir = "%s/magisk" % initdir
-            appdir = "%s/app/KitsuneMask" % sysroot
-            cmds = _clean_dir_commands(dev, magiskdir, env) + _clean_dir_commands(dev, appdir, env)
+            cmds = _clean_dir_commands(dev, magiskdir, env)
             cmds += ["rm %s/bootanim.rc.gz" % initdir]
             if original:  # restore the stock bootanim service
                 bo = "%s/bootanim.rc" % initdir
@@ -545,7 +520,7 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
     stub = _mp.extract_stub_apk(apk, os.path.join(work, "tools"))
 
     results: list[str] = []
-    results += install_to_system(instance_dir, tools, stub, manager_apk=apk, progress=progress)
+    results += install_to_system(instance_dir, tools, stub, progress=progress)
     results += stage_databin(instance_dir, tools, progress=progress)
     _write_manifest(instance_dir, ["system", "databin", "manager"])
     results.append("Magisk %s installed offline (system + DATABIN + manager)." % _mp.PAYLOAD_VERSION)
