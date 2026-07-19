@@ -1,5 +1,7 @@
 **/__pycache__/
 /.superpowers/
+/.claude/
+/docs/superpowers/
 /venv/
 BlueStacksRootGUI*.spec
 /dist/
