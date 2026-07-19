@@ -40,10 +40,13 @@ policy work is needed; we still set the ``adb_data_file`` context for correctnes
 from __future__ import annotations
 
 import datetime
+import gzip
 import json
 import logging
 import os
 import re
+import sys
+import tempfile
 
 import ext4_symlink as _es  # reuse attach/debugfs/e2fsck machinery
 import magisk_payload as _mp
@@ -61,6 +64,16 @@ _EXEC_TOOLS = ("busybox", "magisk32", "magisk64", "magiskinit", "magiskpolicy", 
 # debugfs output substrings that mean a command in the script failed.
 _ERR_MARKERS = ("File not found", "no such", "Invalid", "Bad ", "No space",
                 "not enough", "Could not", "error while")
+
+# --- System-mode install (into Root.vhd's /android/system) ------------------
+# Captured, version-pinned assets that Magisk's own "Install to System" produces
+# but which aren't in the APK: the boot-sequence rc, the original backup, and
+# the tiny config. Kept in lockstep with the pinned APK version.
+_ASSET_SUBDIR = "kitsune-27.001"
+# Guest system tree lives at /android/system inside Root.vhd (Data.vhdx is /data).
+_SYSTEM_ROOTS = ("/android/system", "/system")
+# Magisk binaries the system install pulls from the payload (not busybox/boot).
+_SYS_MAGISK_BINS = ("magisk32", "magisk64", "magiskinit", "magiskpolicy")
 
 
 def _data_vhdx(instance_dir: str) -> str:
@@ -96,9 +109,9 @@ def _errtail(out: str) -> str:
     return " | ".join(lines[-6:]) if lines else (out.strip()[-200:] or "(no output)")
 
 
-def _list_databin(device: str, env: dict) -> list[str]:
-    """Names currently inside ``/adb/magisk`` (empty if the dir is absent)."""
-    out = _es._run([_es._debugfs(), "-R", "ls -l %s" % _DATABIN, device],
+def _list_dir(device: str, ext4_dir: str, env: dict) -> list[str]:
+    """Names currently inside ``ext4_dir`` (empty if it's absent)."""
+    out = _es._run([_es._debugfs(), "-R", "ls -l %s" % ext4_dir, device],
                    env=env).stdout or ""
     names: list[str] = []
     for line in out.splitlines():
@@ -113,11 +126,11 @@ def _list_databin(device: str, env: dict) -> list[str]:
     return names
 
 
-def _clean_commands(device: str, env: dict) -> list[str]:
-    """debugfs commands to remove whatever is *actually* in ``/adb/magisk`` and
-    then the dir -- covers a prior/foreign install, not just our own names."""
-    cmds = ["rm %s/%s" % (_DATABIN, n) for n in _list_databin(device, env)]
-    cmds.append("rmdir %s" % _DATABIN)
+def _clean_dir_commands(device: str, ext4_dir: str, env: dict) -> list[str]:
+    """debugfs commands to remove whatever is *actually* in ``ext4_dir`` and then
+    the dir itself -- covers a prior/foreign install, not just our own names."""
+    cmds = ["rm %s/%s" % (ext4_dir, n) for n in _list_dir(device, ext4_dir, env)]
+    cmds.append("rmdir %s" % ext4_dir)
     return cmds
 
 
@@ -201,7 +214,7 @@ def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> li
     with _es._Attached(vhdx) as att:
         dev = att.device
         _p("Writing %d tools into %s..." % (len(tools), _DATABIN))
-        out = _es._run_script(dev, _clean_commands(dev, env) + _write_commands(tools), env)
+        out = _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env) + _write_commands(tools), env)
         try:
             bad = _verify_staged(dev, tools, env)
             if bad:
@@ -214,7 +227,7 @@ def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> li
         except Exception:
             _p("Staging failed -- rolling back /data/adb/magisk...")
             try:
-                _es._run_script(dev, _clean_commands(dev, env), env)
+                _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env), env)
             except Exception:
                 logger.exception("rollback cleanup also failed")
             raise
@@ -237,10 +250,176 @@ def unstage_databin(instance_dir: str, progress=None) -> list[str]:
     _p("Attaching Data.vhdx (removing Magisk binaries)...")
     with _es._Attached(vhdx) as att:
         dev = att.device
-        _es._run_script(dev, _clean_commands(dev, env), env)  # enumerate-based removal
+        _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env), env)  # enumerate-based removal
         if "Inode:" in _es._stat_path(dev, _DATABIN, env):
             raise RuntimeError("failed to remove %s" % _DATABIN)
         if not _es._fsck_ok(dev, env):
             raise RuntimeError("e2fsck reported errors after removing DATABIN")
     _clear_manifest(instance_dir)
     return ["Removed /data/adb/magisk"]
+
+
+# --------------------------------------------------------------------------
+# System-mode install: write Magisk's /system footprint into Root.vhd offline.
+# --------------------------------------------------------------------------
+
+def _asset_dir() -> str:
+    """Directory holding the captured, version-pinned system-install assets
+    (config, bootanim.rc, bootanim.rc.gz)."""
+    if getattr(sys, "frozen", False):  # PyInstaller onefile
+        base = sys._MEIPASS  # type: ignore[attr-defined]
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "magisk_assets", _ASSET_SUBDIR)
+
+
+def _find_system_root(device: str, env: dict) -> str:
+    """ext4 path of the guest system tree (/android/system or /system) --
+    whichever actually holds etc/init inside Root.vhd."""
+    for root in _SYSTEM_ROOTS:
+        if "Inode:" in _es._stat_path(device, "%s/etc/init" % root, env):
+            return root
+    raise RuntimeError("guest system tree (etc/init) not found in Root.vhd")
+
+
+def _system_write_commands(sysroot: str, srcs: dict[str, str]) -> list[str]:
+    """Pure debugfs command list writing Magisk's system-mode footprint under
+    ``sysroot``.  ``srcs`` maps each footprint file to its host source path.
+
+    Footprint (exactly what Magisk's own Install-to-System writes):
+      <sysroot>/etc/init/magisk/{config,magisk32,magisk64,magiskinit,
+                                 magiskpolicy,stub.apk}   0700 root:root
+      <sysroot>/etc/init/bootanim.rc                      0664 system:system
+      <sysroot>/etc/init/bootanim.rc.gz                   0600 root:root
+    """
+    initdir = "%s/etc/init" % sysroot
+    magiskdir = "%s/magisk" % initdir
+    cmds = ["mkdir %s" % magiskdir, "sif %s mode 040700" % magiskdir,
+            "sif %s uid 0" % magiskdir, "sif %s gid 0" % magiskdir,
+            "cd %s" % magiskdir]
+    for name in ("config",) + _SYS_MAGISK_BINS + ("stub.apk",):
+        dst = "%s/%s" % (magiskdir, name)
+        cmds += ["write %s %s" % (_dq(_cygpath(srcs[name])), name),  # quoted src, bare dest
+                 "sif %s mode 0100700" % dst, "sif %s uid 0" % dst, "sif %s gid 0" % dst]
+    # bootanim.rc replaces the stock service file; bootanim.rc.gz backs up the
+    # original so uninstall can restore it.
+    bo = "%s/bootanim.rc" % initdir
+    boz = "%s/bootanim.rc.gz" % initdir
+    cmds += ["cd %s" % initdir, "rm bootanim.rc",
+             "write %s bootanim.rc" % _dq(_cygpath(srcs["bootanim.rc"])),
+             "sif %s mode 0100664" % bo, "sif %s uid 1000" % bo, "sif %s gid 1000" % bo,
+             "write %s bootanim.rc.gz" % _dq(_cygpath(srcs["bootanim.rc.gz"])),
+             "sif %s mode 0100600" % boz, "sif %s uid 0" % boz, "sif %s gid 0" % boz]
+    return cmds
+
+
+def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
+                      progress=None) -> list[str]:
+    """Write Magisk's system-mode footprint into the instance's Root.vhd offline.
+
+    ``tools`` provides the magisk binaries (magisk_payload.extract_tools);
+    ``stub_path`` is stub.apk (magisk_payload.extract_stub_apk); config +
+    bootanim.rc + bootanim.rc.gz come from the pinned captured assets.
+    All-or-nothing: a partial magisk/ dir is rolled back on failure.
+    """
+    def _p(msg: str) -> None:
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    root_vhd = os.path.join(instance_dir, "Root.vhd")
+    if not _es.tools_available():
+        raise RuntimeError("bundled e2fsprogs (debugfs) not found")
+    if not os.path.isfile(root_vhd):
+        raise RuntimeError("Root.vhd not found in %s (system install needs the "
+                           "classic Root.vhd system image)" % instance_dir)
+    assets = _asset_dir()
+    srcs = {"config": os.path.join(assets, "config"),
+            "bootanim.rc": os.path.join(assets, "bootanim.rc"),
+            "bootanim.rc.gz": os.path.join(assets, "bootanim.rc.gz"),
+            "stub.apk": stub_path}
+    for name in _SYS_MAGISK_BINS:
+        if name not in tools:
+            raise RuntimeError("payload missing %s" % name)
+        srcs[name] = tools[name]
+    for name, path in srcs.items():
+        if not os.path.isfile(path):
+            raise RuntimeError("missing source for %s: %s" % (name, path))
+
+    env = _es._tool_env()
+    _p("Attaching Root.vhd (installing Magisk to /system)...")
+    with _es._Attached(root_vhd) as att:
+        dev = att.device
+        sysroot = _find_system_root(dev, env)
+        magiskdir = "%s/etc/init/magisk" % sysroot
+        _p("Writing Magisk system files under %s/etc/init ..." % sysroot)
+        script = _clean_dir_commands(dev, magiskdir, env) + _system_write_commands(sysroot, srcs)
+        out = _es._run_script(dev, script, env)
+        try:
+            for path in ("%s/config" % magiskdir, "%s/magisk64" % magiskdir,
+                         "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot):
+                if "Inode:" not in _es._stat_path(dev, path, env):
+                    raise RuntimeError("system install incomplete: missing %s (debugfs: %s)"
+                                       % (path, _errtail(out)))
+            _p("Verifying filesystem (e2fsck)...")
+            if not _es._fsck_ok(dev, env):
+                raise RuntimeError("e2fsck reported errors after system install")
+        except Exception:
+            _p("System install failed -- rolling back...")
+            try:
+                _es._run_script(dev, _clean_dir_commands(dev, magiskdir, env), env)
+            except Exception:
+                logger.exception("rollback cleanup also failed")
+            raise
+    return ["Installed Magisk system files into %s/etc/init" % sysroot]
+
+
+def uninstall_from_system(instance_dir: str, progress=None) -> list[str]:
+    """Remove Magisk's system-mode footprint from Root.vhd and restore the stock
+    bootanim.rc from the pinned original."""
+    def _p(msg: str) -> None:
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    root_vhd = os.path.join(instance_dir, "Root.vhd")
+    if not _es.tools_available() or not os.path.isfile(root_vhd):
+        return ["e2fsprogs/Root.vhd unavailable -- nothing to remove"]
+
+    # Decompress the pinned original bootanim.rc so we can restore it (debugfs
+    # can't gunzip). The captured .gz is BlueStacks' generic stock service file.
+    original = None
+    gzpath = os.path.join(_asset_dir(), "bootanim.rc.gz")
+    if os.path.isfile(gzpath):
+        fd, original = tempfile.mkstemp(suffix="-bootanim.rc")
+        with os.fdopen(fd, "wb") as out, gzip.open(gzpath, "rb") as src:
+            out.write(src.read())
+
+    env = _es._tool_env()
+    _p("Attaching Root.vhd (removing Magisk system files)...")
+    try:
+        with _es._Attached(root_vhd) as att:
+            dev = att.device
+            sysroot = _find_system_root(dev, env)
+            initdir = "%s/etc/init" % sysroot
+            magiskdir = "%s/magisk" % initdir
+            cmds = _clean_dir_commands(dev, magiskdir, env)
+            cmds += ["rm %s/bootanim.rc.gz" % initdir]
+            if original:  # restore the stock bootanim service
+                bo = "%s/bootanim.rc" % initdir
+                cmds += ["cd %s" % initdir, "rm bootanim.rc",
+                         "write %s bootanim.rc" % _dq(_cygpath(original)),
+                         "sif %s mode 0100664" % bo, "sif %s uid 1000" % bo,
+                         "sif %s gid 1000" % bo]
+            _es._run_script(dev, cmds, env)
+            if "Inode:" in _es._stat_path(dev, magiskdir, env):
+                raise RuntimeError("failed to remove %s" % magiskdir)
+            if not _es._fsck_ok(dev, env):
+                raise RuntimeError("e2fsck reported errors after removing system files")
+    finally:
+        if original:
+            try:
+                os.unlink(original)
+            except OSError:
+                pass
+    return ["Removed Magisk system files"]

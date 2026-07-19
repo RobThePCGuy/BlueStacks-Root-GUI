@@ -59,14 +59,41 @@ def test_list_databin_parses_names_skipping_dots_and_symlink_targets(monkeypatch
         " 3801092  120777 (7)   0   0   9 19-Jul-2026 12:38 sulink -> busybox",
     ])
     monkeypatch.setattr(ms._es, "_run", _fake_run(sample))
-    assert ms._list_databin("dev", {}) == ["busybox", "sulink"]
+    assert ms._list_dir("dev", ms._DATABIN, {}) == ["busybox", "sulink"]
 
 
-def test_clean_commands_removes_actual_contents_then_rmdir(monkeypatch):
+def test_clean_dir_commands_removes_actual_contents_then_rmdir(monkeypatch):
     monkeypatch.setattr(ms._es, "_run", _fake_run(
         " 1 100755 (1) 0 0 5 d t foo\n 2 100755 (1) 0 0 5 d t bar\n"))
-    assert ms._clean_commands("dev", {}) == [
-        "rm %s/foo" % ms._DATABIN, "rm %s/bar" % ms._DATABIN, "rmdir %s" % ms._DATABIN]
+    assert ms._clean_dir_commands("dev", "/x/y", {}) == [
+        "rm /x/y/foo", "rm /x/y/bar", "rmdir /x/y"]
+
+
+def test_system_write_commands_footprint_and_perms():
+    srcs = {n: r"C:\a\%s" % n for n in
+            ("config", "magisk32", "magisk64", "magiskinit", "magiskpolicy",
+             "stub.apk", "bootanim.rc", "bootanim.rc.gz")}
+    cmds = ms._system_write_commands("/android/system", srcs)
+    md = "/android/system/etc/init/magisk"
+    idir = "/android/system/etc/init"
+
+    # magisk dir created 0700 root, cd'd into before its writes
+    assert "mkdir %s" % md in cmds
+    assert "sif %s mode 040700" % md in cmds
+    cd_md = cmds.index("cd %s" % md)
+    cd_id = cmds.index("cd %s" % idir)
+    assert cd_md < cd_id  # magisk dir written first, then init dir
+
+    # every magisk-dir file: quoted source, bare dest, 0700 root
+    assert 'write "/cygdrive/c/a/config" config' in cmds
+    assert "sif %s/magisk64 mode 0100700" % md in cmds
+    assert "sif %s/stub.apk uid 0" % md in cmds
+
+    # bootanim.rc replaces stock (rm first), 0664 system; .gz backup 0600 root
+    assert cmds.index("rm bootanim.rc") > cd_id
+    assert "sif %s/bootanim.rc mode 0100664" % idir in cmds
+    assert "sif %s/bootanim.rc uid 1000" % idir in cmds
+    assert "sif %s/bootanim.rc.gz mode 0100600" % idir in cmds
 
 
 def test_verify_staged_flags_wrong_mode_and_owner(monkeypatch):

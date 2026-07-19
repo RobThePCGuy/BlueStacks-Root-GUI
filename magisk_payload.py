@@ -50,6 +50,10 @@ _TOOLS = {
     "magisk32": (_X86, "libmagisk32.so"),    # 32-bit app root
 }
 
+# Non-lib member the system-mode install needs (the Magisk manager stub the app
+# would otherwise write to /system/etc/init/magisk/stub.apk).
+STUB_APK_MEMBER = "assets/stub.apk"
+
 
 def _sha256(path: str) -> str:
     h = hashlib.sha256()
@@ -132,3 +136,17 @@ def extract_tools(apk_path: str, dest_dir: str, progress=None) -> dict[str, str]
         raise
     _p("Extracted %d Magisk tools (%s)." % (len(out), ", ".join(sorted(out))))
     return out
+
+
+def extract_stub_apk(apk_path: str, dest_dir: str) -> str:
+    """Extract the Magisk manager stub (``assets/stub.apk``) from the APK; return
+    its path.  Needed by the system-mode install (goes to
+    ``/system/etc/init/magisk/stub.apk``)."""
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, "stub.apk")
+    with zipfile.ZipFile(apk_path) as z:
+        if STUB_APK_MEMBER not in set(z.namelist()):
+            raise RuntimeError("payload is missing %s" % STUB_APK_MEMBER)
+        with z.open(STUB_APK_MEMBER) as src, open(dest, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    return dest
