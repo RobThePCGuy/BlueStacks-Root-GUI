@@ -40,6 +40,7 @@ policy work is needed; we still set the ``adb_data_file`` context for correctnes
 from __future__ import annotations
 
 import datetime
+import glob
 import gzip
 import json
 import logging
@@ -82,6 +83,49 @@ def _data_vhdx(instance_dir: str) -> str:
 
 def _manifest_path(instance_dir: str) -> str:
     return os.path.join(instance_dir, _MANIFEST_NAME)
+
+
+def _bstk_vhd_location(bstk_path: str) -> str | None:
+    """The ``location`` of the VHD (system) HardDisk in a ``.bstk``, or None.
+
+    Fresh/cloned instances have no own Root.vhd -- their .bstk points the VHD
+    disk at the instance that owns the shared system image.
+    """
+    try:
+        with open(bstk_path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None
+    for m in re.finditer(r"<HardDisk\b[^>]*?/?>", text):
+        tag = m.group(0)
+        if 'format="VHD"' in tag:  # Root.vhd is VHD; fastboot is VDI, Data is VHDX
+            loc = re.search(r'location="([^"]+)"', tag)
+            if loc:
+                return loc.group(1)
+    return None
+
+
+def _resolve_root_vhd(instance_dir: str) -> str:
+    """Path to the Root.vhd this instance boots from -- its own, or the shared
+    master's if it's a clone/fresh instance (which have no own Root.vhd).
+
+    Raises with an actionable message if none can be found.
+    """
+    own = os.path.join(instance_dir, "Root.vhd")
+    if os.path.isfile(own):
+        return own
+    for bstk in glob.glob(os.path.join(instance_dir, "*.bstk")):
+        loc = _bstk_vhd_location(bstk)
+        if not loc:
+            continue
+        resolved = loc if os.path.isabs(loc) else os.path.normpath(os.path.join(instance_dir, loc))
+        if os.path.isfile(resolved):
+            return resolved
+    raise RuntimeError(
+        "no Root.vhd for %s -- BlueStacks shares one system image across all "
+        "instances of an Android version, and this looks like a clone/fresh "
+        "instance that has none of its own. Installing to /system here would "
+        "affect every instance of that version." % instance_dir)
 
 
 def _cygpath(win_path: str) -> str:
@@ -167,13 +211,17 @@ def _verify_staged(device: str, tools: dict[str, str], env: dict) -> list[str]:
     return bad
 
 
-def _write_manifest(instance_dir: str, tools: dict[str, str]) -> None:
+def _write_manifest(instance_dir: str, components: list[str]) -> None:
+    """Stamp the install manifest (provenance + what was written) next to
+    Data.vhdx.  ``components`` is what's present, e.g. ["system","databin",
+    "manager"] for a full install or ["databin"] for a DATABIN-only stage."""
     data = {
-        "databin": "/data/adb/magisk",
+        "magisk": True,
         "payload": _mp.PAYLOAD_NAME,
         "payload_sha256": _mp.PAYLOAD_SHA256,
-        "tools": sorted(tools),
-        "staged_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "version": _mp.PAYLOAD_VERSION,
+        "components": sorted(components),
+        "installed_at": datetime.datetime.now().isoformat(timespec="seconds"),
     }
     try:
         with open(_manifest_path(instance_dir), "w", encoding="utf-8") as f:
@@ -187,6 +235,16 @@ def _clear_manifest(instance_dir: str) -> None:
         os.unlink(_manifest_path(instance_dir))
     except OSError:
         pass
+
+
+def magisk_status(instance_dir: str) -> dict | None:
+    """The install manifest for this instance, or None if this tool hasn't
+    installed Magisk here.  For the GUI to show install state."""
+    try:
+        with open(_manifest_path(instance_dir), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> list[str]:
@@ -231,7 +289,7 @@ def stage_databin(instance_dir: str, tools: dict[str, str], progress=None) -> li
             except Exception:
                 logger.exception("rollback cleanup also failed")
             raise
-    _write_manifest(instance_dir, tools)
+    _write_manifest(instance_dir, ["databin"])
     return ["Staged %d Magisk tools into /data/adb/magisk (all verified, busybox gate OK)"
             % len(tools)]
 
@@ -347,12 +405,9 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
         if progress:
             progress(msg)
 
-    root_vhd = os.path.join(instance_dir, "Root.vhd")
     if not _es.tools_available():
         raise RuntimeError("bundled e2fsprogs (debugfs) not found")
-    if not os.path.isfile(root_vhd):
-        raise RuntimeError("Root.vhd not found in %s (system install needs the "
-                           "classic Root.vhd system image)" % instance_dir)
+    root_vhd = _resolve_root_vhd(instance_dir)  # own, or the shared master's (clone)
     assets = _asset_dir()
     srcs = {"config": os.path.join(assets, "config"),
             "bootanim.rc": os.path.join(assets, "bootanim.rc"),
@@ -414,9 +469,12 @@ def uninstall_from_system(instance_dir: str, progress=None) -> list[str]:
         if progress:
             progress(msg)
 
-    root_vhd = os.path.join(instance_dir, "Root.vhd")
-    if not _es.tools_available() or not os.path.isfile(root_vhd):
-        return ["e2fsprogs/Root.vhd unavailable -- nothing to remove"]
+    if not _es.tools_available():
+        return ["e2fsprogs unavailable -- nothing to remove"]
+    try:
+        root_vhd = _resolve_root_vhd(instance_dir)
+    except RuntimeError:
+        return ["Root.vhd not found -- nothing to remove"]
 
     # Decompress the pinned original bootanim.rc so we can restore it (debugfs
     # can't gunzip). The captured .gz is BlueStacks' generic stock service file.
@@ -456,3 +514,49 @@ def uninstall_from_system(instance_dir: str, progress=None) -> list[str]:
             except OSError:
                 pass
     return ["Removed Magisk system files"]
+
+
+# --------------------------------------------------------------------------
+# Top-level orchestration: the full offline Magisk-to-system install/uninstall.
+# --------------------------------------------------------------------------
+
+def _default_work_dir() -> str:
+    return os.path.join(tempfile.gettempdir(), "BlueStacksRootGUI-magisk")
+
+
+def install(instance_dir: str, work_dir: str | None = None, progress=None) -> list[str]:
+    """Full offline Magisk-to-system install for one instance.
+
+    Fetches the pinned payload, writes the /system footprint + preinstalled
+    manager into Root.vhd, stages /data/adb/magisk into Data.vhdx, and stamps a
+    manifest.  The instance must be shut down.  The engine integrity patch is the
+    caller's job (integrity_patch.patch_installation) -- without it a modified
+    system won't boot.
+    """
+    def _p(msg: str) -> None:
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    work = work_dir or _default_work_dir()
+    _p("Fetching Magisk payload (%s)..." % _mp.PAYLOAD_VERSION)
+    apk = _mp.fetch_apk(os.path.join(work, "cache"), progress=progress)
+    tools = _mp.extract_tools(apk, os.path.join(work, "tools"), progress=progress)
+    stub = _mp.extract_stub_apk(apk, os.path.join(work, "tools"))
+
+    results: list[str] = []
+    results += install_to_system(instance_dir, tools, stub, manager_apk=apk, progress=progress)
+    results += stage_databin(instance_dir, tools, progress=progress)
+    _write_manifest(instance_dir, ["system", "databin", "manager"])
+    results.append("Magisk %s installed offline (system + DATABIN + manager)." % _mp.PAYLOAD_VERSION)
+    return results
+
+
+def uninstall(instance_dir: str, progress=None) -> list[str]:
+    """Reverse a full install: remove the /system footprint + manager, the
+    DATABIN, and the manifest.  Instance must be shut down."""
+    results: list[str] = []
+    results += uninstall_from_system(instance_dir, progress=progress)
+    results += unstage_databin(instance_dir, progress=progress)
+    _clear_manifest(instance_dir)
+    return results

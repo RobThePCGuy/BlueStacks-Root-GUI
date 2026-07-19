@@ -36,6 +36,7 @@ PAYLOAD_URL = (
 )
 PAYLOAD_SHA256 = "5a3e77d28d4ead274e39b83fa7a4c60d201c43b2d665b30955685179c77d53e7"
 PAYLOAD_SIZE = 12880326
+PAYLOAD_VERSION = "27.001-kitsune"  # human-readable; move in lockstep with the pin
 
 # lib/<abi>/lib<tool>.so  ->  DATABIN tool name.  magisk64 + the x86_64 tools
 # come from lib/x86_64; magisk32 from lib/x86 so 32-bit guest apps get root.

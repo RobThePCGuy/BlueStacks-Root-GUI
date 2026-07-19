@@ -111,3 +111,50 @@ def test_verify_staged_flags_wrong_mode_and_owner(monkeypatch):
 def test_errtail_surfaces_debugfs_error_lines():
     out = "debugfs: write x y\nAllocated inode: 39\n/adb/magisk/foo: File not found by ext2_lookup"
     assert "File not found" in ms._errtail(out)
+
+
+_BSTK = (
+    '<HardDisk uuid="{a}" location="fastboot.vdi" format="VDI" type="Readonly"/>\n'
+    '<HardDisk uuid="{b}" location="{ROOTLOC}" format="VHD" type="Readonly"/>\n'
+    '<HardDisk uuid="{c}" location="Data.vhdx" format="VHDX" type="Normal"/>\n'
+)
+
+
+def test_bstk_vhd_location_picks_the_vhd_not_vdi_or_vhdx(tmp_path):
+    p = tmp_path / "x.bstk"
+    p.write_text(_BSTK.replace("{ROOTLOC}", "../Master/Root.vhd"))
+    assert ms._bstk_vhd_location(str(p)) == "../Master/Root.vhd"
+
+
+def test_resolve_root_vhd_prefers_own(tmp_path):
+    (tmp_path / "Root.vhd").write_bytes(b"x")
+    assert ms._resolve_root_vhd(str(tmp_path)) == str(tmp_path / "Root.vhd")
+
+
+def test_resolve_root_vhd_follows_bstk_to_shared_master(tmp_path):
+    master = tmp_path / "Master"
+    master.mkdir()
+    (master / "Root.vhd").write_bytes(b"x")
+    clone = tmp_path / "Clone"
+    clone.mkdir()
+    (clone / "Clone.bstk").write_text(_BSTK.replace("{ROOTLOC}", "../Master/Root.vhd"))
+
+    resolved = ms._resolve_root_vhd(str(clone))
+    assert os.path.normpath(resolved) == os.path.normpath(str(master / "Root.vhd"))
+
+
+def test_resolve_root_vhd_raises_when_none(tmp_path):
+    (tmp_path / "Data.vhdx").write_bytes(b"x")  # data-only, no Root.vhd, no bstk
+    with pytest.raises(RuntimeError, match="no Root.vhd"):
+        ms._resolve_root_vhd(str(tmp_path))
+
+
+def test_manifest_roundtrip(tmp_path):
+    assert ms.magisk_status(str(tmp_path)) is None
+    ms._write_manifest(str(tmp_path), ["system", "databin", "manager"])
+    st = ms.magisk_status(str(tmp_path))
+    assert st["magisk"] is True
+    assert st["components"] == ["databin", "manager", "system"]
+    assert st["version"] == ms._mp.PAYLOAD_VERSION
+    ms._clear_manifest(str(tmp_path))
+    assert ms.magisk_status(str(tmp_path)) is None
