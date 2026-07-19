@@ -6,7 +6,7 @@
 
 ---
 
-![GUI Screenshot](https://github.com/user-attachments/assets/10f965eb-e1cc-4d61-9b6f-0cbb484a4ef0)
+<img width="702" height="518" alt="Screenshot 2026-07-19 012705" src="https://github.com/user-attachments/assets/44c61987-5be3-4972-b439-e7682bd9626c" />
 
 **A one-click tool to root BlueStacks 5.** It turns root access on and off from a simple window — no command line, no reverse-engineering, no hunting for an old version. Point it at your BlueStacks, click a couple of buttons, done.
 
