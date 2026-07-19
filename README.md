@@ -28,21 +28,25 @@ A utility to toggle root access and read/write (R/W) permissions for BlueStacks 
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Contributing](#contributing)
+- [Credits](#credits)
 
 ---
 
 ## Features
 
+- **Nav-Rail Layout** - A left navigation rail splits the app into three pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (per-instance root/R-W toggles), and **Modules** (push and flash a Magisk module). A light/dark theme toggle sits in the header
 - **Auto-Detection** - Discovers BlueStacks installation paths via the Windows Registry (Normal, China, and MSI editions) and picks the right rooting method per version automatically
-- **Instance Listing** - Lists every instance with live Root and R/W status, including newer instances that use a single `Data.vhdx` layout (created or cloned) — not just the classic `fastboot.vdi`/`Root.vhd` ones
-- **Engine-Patch Status** - Shows at a glance whether the engine is already patched (*"Engine: Patched ✓"*), so you never have to guess — it's per-install and applies to every instance
+- **Instance Listing** - Lists every instance by its display name with live Root and R/W status (root shows a green highlight when on), including newer instances that use a single `Data.vhdx` layout (created or cloned) — not just the classic `fastboot.vdi`/`Root.vhd` ones
+- **Engine-Patch Status** - The Dashboard's engine button reads its own state at a glance: *"Patch BlueStacks Engine (required for root),"* *"Engine patched (click to Undo),"* or *"Engine partially patched (click to finish)."* It's per-install and applies to every instance
+- **Patch-Gating Banner** - On patch-mode builds, the Instances page shows a banner while the engine is unpatched (*"Patch-mode root is locked…"*) with a **Fix it** button that jumps straight to the Dashboard, so you can't try to root an instance before the engine is ready
+- **Update-Revert Alert** - If a background auto-update silently replaces the patched files, the Dashboard raises an alert with a one-click **Re-patch now** button
 - **Root Toggle** - Enables root the right way for your build: the `enable_root_access` / `bst.feature.rooting` flags on classic builds, plus an offline guest-`su` patch on 5.22.150.1014+. Prompts you to boot a fresh instance once if its `su` isn't generated yet
 - **Engine Patch (5.22+)** - Patches `HD-Player.exe` to disable the *"doesn't meet security"* integrity shutdown, and `HD-MultiInstanceManager.exe` so root isn't reset back off when you edit instances
 - **Read/Write Toggle** - Switches disk files (`fastboot.vdi`, `Root.vhd`) between `Normal` and `Readonly`
-- **Install Magisk Module** - Pushes a module `.zip` into a running instance and flashes it directly over BlueStacks' bundled ADB (`magisk --install-module`), so you skip BlueStacks' file dialog entirely (it hands Magisk an *"Invalid Uri"* it can't open). Just close and reopen the instance afterwards to activate it
+- **Push and Flash Module** - The Modules page pushes a module `.zip` into a running instance and flashes it directly over BlueStacks' bundled ADB (`magisk --install-module`), so you skip BlueStacks' file dialog entirely (it hands Magisk an *"Invalid Uri"* it can't open). Just close and reopen the instance afterwards to activate it
 - **Reversible** - Every binary patch backs up to a `.prepatch.bak`; every guest-`su` patch records the original bytes. "Undo Engine Patch" and toggling root off restore the originals
 - **Process Handling** - Closes all BlueStacks processes (player, services, and the Multi-Instance Manager) before applying changes
-- **Responsive UI** - Long operations run on background threads (`QThread`) so the window never freezes
+- **Responsive UI** - Long operations run on background threads (`QThread`) so the window never freezes, and a docked progress bar reports real step-by-step percentages
 - **Internationalization** - Includes English and Japanese translations
 
 ## How It Works
@@ -57,6 +61,9 @@ BlueStacks changed how it locks down root across versions, so the tool uses two 
 2. **Guest-`su` patch** - opens the instance's `Data.vhdx` directly (no running instance, no ADB), finds every guest `su`, and flips its `isDeveloperMode()` gate to always-grant so root works for **every app**.
 
 Both patches are located by byte signature, not hard-coded offsets, so they survive minor version rebuilds, and both are fully reversible.
+
+> [!NOTE]
+> The patch-mode method — the `HD-Player.exe` / `HD-MultiInstanceManager.exe` engine patch **and** the offline `Data.vhdx` guest-`su` patch that root the latest BlueStacks — was contributed by **[@AndnixSH](https://github.com/AndnixSH)** in [PR #27](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/pull/27). See [Credits](#credits).
 
 ## Prerequisites
 
@@ -102,16 +109,19 @@ Output will be in the `dist/` folder.
 
 ## Usage Guide
 
-Launch the GUI **as administrator**. It auto-detects your BlueStacks installation, lists your instances, and shows the engine-patch buttons only when a patch-mode build (5.22.150.1014+) is present. Follow the section that matches your version.
+Launch the GUI **as administrator**. It opens on the **Dashboard**, auto-detects your BlueStacks installation, and shows the engine-patch button only when a patch-mode build (5.22.150.1014+) is present. Use the left nav rail to move between **Dashboard**, **Instances**, and **Modules**. Follow the section that matches your version.
 
 ### Patch-Mode Builds (5.22.150.1014+)
 
 This is the path for current BlueStacks. You get root for apps without touching `/system` or installing anything in the guest.
 
 1. **Create the instance first** - if it's a brand-new install, open BlueStacks once so it builds and boots your instance, then close it. The guest `su` only appears in `Data.vhdx` after the first boot.
-2. **Patch the engine (once per install)** - click **"Patch BlueStacks Engine (required for root)"** → **Yes**. All BlueStacks processes are closed first, then `HD-Player.exe` and `HD-MultiInstanceManager.exe` are patched and backed up.
-3. **Toggle root (per instance)** - tick the instance and click **"Toggle Root."** This sets the root flags and patches the guest `su` inside `Data.vhdx`. **Watch the status text at the bottom of the window** - it walks through "Part 1/2: enabling root access..." then "Part 2/2: patching guest su in Data.vhdx..." before the button becomes usable again. If you launch the instance while that's still running, it'll fail; wait for it to finish. If it reports `su` isn't there yet, a dialog will tell you to boot the instance once and toggle again.
+2. **Patch the engine (once per install)** - on the **Dashboard**, click **"Patch BlueStacks Engine (required for root)"** → **Yes**. All BlueStacks processes are closed first, then `HD-Player.exe` and `HD-MultiInstanceManager.exe` are patched and backed up. (Until you do this, the **Instances** page shows a *"Patch-mode root is locked"* banner with a **Fix it** shortcut back here.)
+3. **Toggle root (per instance)** - go to the **Instances** page, tick the instance, and click **"Toggle Root."** This sets the root flags and patches the guest `su` inside `Data.vhdx`. **Watch the progress bar at the bottom of the window** - it walks through "Part 1/2: enabling root access..." then "Part 2/2: patching guest su in Data.vhdx..." before the button becomes usable again. If you launch the instance while that's still running, it'll fail; wait for it to finish. If it reports `su` isn't there yet, a dialog will tell you to boot the instance once and toggle again.
 4. **Restart the instance** - start it from BlueStacks. It should boot with **no** security/tamper popup, and root-checker apps (or Kitsune Mask / Magisk) will see root.
+
+> [!NOTE]
+> If a background BlueStacks auto-update later replaces the patched files, the Dashboard raises an **"auto-update reverted your engine patch"** alert with a **Re-patch now** button. See [Keep Root After Updates](#keep-root-after-updates) to stop it recurring.
 
 > [!TIP]
 > This gets **apps** working root — enough for most root-requiring apps and root checkers. If you want **Magisk/Kitsune-managed root with modules and hiding** (Zygisk, Play Integrity Fix, LSPosed, etc.), that's a separate, more involved setup with real emulator gotchas (Zygisk injection, competing-`su` conflicts, modules that hang boot). It's documented in the companion guide: **[Root BlueStacks with Kitsune Mask → Magisk Modules & Hiding](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask#magisk-modules--hiding-advanced)**.
@@ -120,7 +130,7 @@ This is the path for current BlueStacks. You get root for apps without touching 
 
 The original flag-based flow, used to install Kitsune Mask into `/system`.
 
-1. **Enable Root & R/W**
+1. **Enable Root & R/W** (on the **Instances** page)
    - Select your target instance
    - Click **"Toggle Root"** (turn ON)
    - Click **"Toggle R/W"** (turn ON)
@@ -239,10 +249,10 @@ You should not need this anymore — it's kept for reference only.
 - Close and reopen the Kitsune Mask app within BlueStacks
 
 **Installing a module fails with "Invalid Uri"**
-- BlueStacks' file picker gives Magisk/Kitsune a Windows-style path it can't open. Instead, start the instance, tick it in the GUI, and use **"Install Magisk Module (.zip)"** — it pushes the module in and flashes it via Magisk for you. Close and reopen the instance to activate it. (If the ADB root shell isn't reachable, it drops the zip in the instance's `Download` folder so you can flash it by hand.)
+- BlueStacks' file picker gives Magisk/Kitsune a Windows-style path it can't open. Instead, start the instance, open the **Modules** page, pick the running instance, browse to the `.zip`, and click **"Push and flash module"** — it pushes the module in and flashes it via Magisk for you. Close and reopen the instance to activate it. (If the ADB root shell isn't reachable, it drops the zip in the instance's `Download` folder so you can flash it by hand.)
 
 **Toggle operation errors**
-- Check the status bar in the GUI for the error message
+- Check the progress bar/status text at the bottom of the window for the error message
 - A full log is written to `%TEMP%\BlueStacksRootGUI.log` — helpful when reporting an issue
 
 **BlueStacks won't launch after patching (locked-down / corporate PCs)**
@@ -253,12 +263,22 @@ You should not need this anymore — it's kept for reference only.
 
 ### Project Structure
 
-- `main.py` - PyQt5 GUI, application logic, threading
+- `main.py` - Application entry point and controller: wires the UI to the handlers, owns the background-thread orchestration
+- `views/` - PyQt5 UI package (nav-rail layout)
+  - `main_window.py` - Main window: nav rail, page stack, worker threads, docked progress bar
+  - `nav_rail.py` - Left navigation rail (Dashboard / Instances / Modules)
+  - `dashboard_page.py` - Install paths, engine-patch button, update-revert alert, rooted-count stat
+  - `instances_page.py` - Instance grid, Toggle Root/R-W, patch-gating banner
+  - `modules_page.py` - Pick a running instance, pick a module `.zip`, push and flash
+  - `progress.py` - Docked status/progress indicator with step percentages
+  - `theme.py` - Light/dark QSS themes and persistence
+  - `engine_rules.py` - Qt-free decision logic for patch-gating and update-revert detection (unit-testable without a `QApplication`)
 - `config_handler.py` - Reads/writes `bluestacks.conf`
 - `instance_handler.py` - Modifies `.bstk` files, handles processes
 - `registry_handler.py` - Reads BlueStacks paths and versions from the Windows Registry
-- `constants.py` - Shared constants (keys, filenames, modes, process list, patch-mode version cutoff)
+- `constants.py` - Shared constants (keys, filenames, modes, process list, patch-mode version cutoff, `APP_VERSION`)
 - `admin.py` - UAC elevation helpers (relaunch as administrator, network-drive-safe)
+- `adb_handler.py` - Pushes and flashes a module `.zip` into a running instance over BlueStacks' bundled ADB (the app's one online operation)
 - `integrity_patch.py` / `root_persistence.py` - Engine patches (5.22+ integrity bypass, keep root enabled) with `.prepatch.bak` backups
 - `su_patch.py` / `su_patch_offline.py` - Patch-mode app root: flips the guest `su` `isDeveloperMode` gate inside `Data.vhdx` (bundled VHD/VHDX + ext4 reader, no ADB required)
 - `ext4_symlink.py` - Classic/MSI app root: adds `/system/xbin/su` in `Root.vhd` via bundled `debugfs` (`tools/e2fsprogs/`)
@@ -269,6 +289,15 @@ See `requirements.txt`. Key dependencies:
 - PyQt5
 - pywin32
 - psutil
+
+### Running Tests
+
+The suite uses `pytest` with `pytest-qt` (for the Qt view tests):
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
 
 ## Contributing
 
@@ -281,6 +310,11 @@ Contributions are welcome! Please:
 - Update `constants.py` for new configurable values
 - Submit pull requests with clear descriptions
 - Open an issue to discuss significant changes before implementing
+
+## Credits
+
+- **Rooting the latest BlueStacks (patch mode):** the engine patch (`HD-Player.exe` + `HD-MultiInstanceManager.exe`) and the offline `Data.vhdx` guest-`su` patch that defeat the 5.22.150.1014+ integrity check were contributed by **[@AndnixSH](https://github.com/AndnixSH)** in [PR #27](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/pull/27). This tool automates that method; without it there'd be no root on current builds without downgrading.
+- **Maintainer:** [@RobThePCGuy](https://github.com/RobThePCGuy) — original GUI, the classic flag-based rooting, and the hardening around the patch-mode method (auto-kill Multi-Instance Manager, restore brick-guard, binary-provenance audit).
 
 ---
 
