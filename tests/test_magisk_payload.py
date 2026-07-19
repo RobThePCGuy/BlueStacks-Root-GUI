@@ -5,6 +5,7 @@ path is exercised with a monkeypatched urlretrieve, so nothing here touches the
 real release or the wire.
 """
 import hashlib
+import os
 import zipfile
 
 import pytest
@@ -63,6 +64,44 @@ def test_fetch_apk_returns_cached_when_hash_matches(tmp_path, monkeypatch):
     monkeypatch.setattr(mp.urllib.request, "urlretrieve", _boom)
 
     assert mp.fetch_apk(str(tmp_path)) == str(cached)
+
+
+def test_extract_tools_missing_member_raises_and_cleans_partial(tmp_path):
+    apk = tmp_path / "bad.apk"
+    items = list(mp._TOOLS.items())
+    with zipfile.ZipFile(apk, "w") as z:  # write all tools EXCEPT the last one
+        for _tool, (abi, soname) in items[:-1]:
+            z.writestr("lib/%s/%s" % (abi, soname), b"x")
+    out = tmp_path / "tools"
+
+    with pytest.raises(RuntimeError, match="missing"):
+        mp.extract_tools(str(apk), str(out))
+
+    # no half-populated tool dir left behind
+    assert list(out.glob("*")) == []
+
+
+def test_fetch_apk_redownloads_when_cache_unreadable(tmp_path, monkeypatch):
+    good = b"good-apk-bytes"
+    monkeypatch.setattr(mp, "PAYLOAD_SHA256", hashlib.sha256(good).hexdigest())
+    cached = tmp_path / mp.PAYLOAD_NAME
+    cached.write_bytes(b"placeholder-that-cannot-be-read")
+
+    real_sha = mp._sha256
+
+    def flaky_sha(path):
+        if os.path.abspath(path) == os.path.abspath(str(cached)):
+            raise OSError("locked")   # cached file unreadable
+        return real_sha(path)         # the fresh .part hashes fine
+    monkeypatch.setattr(mp, "_sha256", flaky_sha)
+
+    def fake_dl(url, dest):
+        with open(dest, "wb") as f:
+            f.write(good)
+    monkeypatch.setattr(mp.urllib.request, "urlretrieve", fake_dl)
+
+    assert mp.fetch_apk(str(tmp_path)) == str(cached)
+    assert cached.read_bytes() == good   # re-downloaded over the bad cache
 
 
 def test_fetch_apk_rejects_bad_hash_and_cleans_up(tmp_path, monkeypatch):

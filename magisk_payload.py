@@ -72,9 +72,13 @@ def fetch_apk(cache_dir: str, progress=None) -> str:
 
     os.makedirs(cache_dir, exist_ok=True)
     dest = os.path.join(cache_dir, PAYLOAD_NAME)
-    if os.path.isfile(dest) and _sha256(dest) == PAYLOAD_SHA256:
-        _p("Kitsune payload present and verified (cached).")
-        return dest
+    if os.path.isfile(dest):
+        try:
+            if _sha256(dest) == PAYLOAD_SHA256:
+                _p("Kitsune payload present and verified (cached).")
+                return dest
+        except OSError:  # unreadable/locked cache -> fall through to re-download
+            pass
 
     _p("Downloading Kitsune payload (%s)..." % PAYLOAD_NAME)
     tmp = dest + ".part"
@@ -107,12 +111,24 @@ def extract_tools(apk_path: str, dest_dir: str, progress=None) -> dict[str, str]
 
     os.makedirs(dest_dir, exist_ok=True)
     out: dict[str, str] = {}
-    with zipfile.ZipFile(apk_path) as z:
-        for tool, (abi, soname) in _TOOLS.items():
-            member = "lib/%s/%s" % (abi, soname)
-            target = os.path.join(dest_dir, tool)
-            with z.open(member) as src, open(target, "wb") as dst:
-                shutil.copyfileobj(src, dst)
-            out[tool] = target
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            members = set(z.namelist())
+            for tool, (abi, soname) in _TOOLS.items():
+                member = "lib/%s/%s" % (abi, soname)
+                if member not in members:
+                    raise RuntimeError(
+                        "payload is missing %s (expected %s in the APK)" % (tool, member))
+                target = os.path.join(dest_dir, tool)
+                with z.open(member) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                out[tool] = target
+    except Exception:
+        for p in out.values():  # don't leave a half-populated tool dir behind
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        raise
     _p("Extracted %d Magisk tools (%s)." % (len(out), ", ".join(sorted(out))))
     return out
