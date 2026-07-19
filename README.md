@@ -22,8 +22,7 @@
 - [Installation](#installation)
 - [Usage Guide](#usage-guide)
   - [Rooting the Current BlueStacks (Patch Mode)](#rooting-the-current-bluestacks-patch-mode)
-  - [Installing Kitsune Mask to /system (Classic / MSI)](#installing-kitsune-mask-to-system-classic--msi)
-  - [Installing a Magisk Module](#installing-a-magisk-module)
+  - [Magisk Modules, Kitsune Mask & Older Builds](#magisk-modules-kitsune-mask--older-builds)
   - [Keep Root After Updates](#keep-root-after-updates)
 - [Troubleshooting](#troubleshooting)
 - [How It Works](#how-it-works)
@@ -115,47 +114,15 @@ This is the path for current BlueStacks (5.22.150.1014 and newer). You get root 
 > [!TIP]
 > This gets **apps** working root — enough for most root-requiring apps and root checkers. If you want **Magisk/Kitsune-managed root with modules and hiding** (Zygisk, Play Integrity Fix, LSPosed, etc.), that's a separate, more involved setup with real emulator gotchas. It's documented in the companion guide: **[Root BlueStacks with Kitsune Mask → Magisk Modules & Hiding](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask#magisk-modules--hiding-advanced)**.
 
-### Installing Kitsune Mask to /system (Classic / MSI)
+### Magisk Modules, Kitsune Mask & Older Builds
 
-The original flag-based flow, for older builds (5.22.130 and earlier) and MSI App Player — used to install Kitsune Mask into `/system`.
+Everything past basic root — installing **Kitsune Mask** into `/system`, choosing and flashing **Magisk modules**, **hiding** (ReZygisk, LSPosed, Play Integrity Fix, module load order), and rooting **older or MSI builds** — lives in the companion guide, so it stays in one maintained place instead of being half-covered in two:
 
-1. **Enable Root & R/W** (on the **Instances** page)
-   - Select your target instance
-   - Click **"Toggle Root"** (turn ON)
-   - Click **"Toggle R/W"** (turn ON)
+> [!TIP]
+> **➡️ [Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask)** — the full written walkthrough.
+> Stuck, or want to share a setup that works? Ask and help out in **[Discussions](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/discussions)** there.
 
-2. **Install Kitsune Mask**
-   - Download the **[Kitsune Mask APK](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/releases/tag/magisk-delta-kitsune-27.001)** — a pinned, hash-verified copy (the original repo is abandoned)
-   - Launch the instance via BlueStacks Multi-Instance Manager
-   - Install the APK (drag-and-drop)
-   - Open the Kitsune Mask app
-
-3. **Direct Install to System**
-   - Tap **Install** → **Next**
-   - Select **"Direct Install to /system"**
-   - If this option is missing, close and reopen the Kitsune Mask app
-   - Let installation complete and reboot when prompted
-
-4. **Final Configuration**
-   - Return to BlueStacks Root GUI
-   - Click **"Toggle Root"** to turn it OFF
-   - **Leave "Toggle R/W" ON**
-
-5. **Verify**
-   - Launch the instance and open Kitsune Mask
-   - It should show as installed and active
-
-### Installing a Magisk Module
-
-BlueStacks' own file picker hands Magisk/Kitsune a Windows path it can't open (you get an *"Invalid Uri"* error). The **Modules** tab does it for you instead:
-
-1. **Start the instance** you want to flash into, and make sure it's rooted.
-2. Open the **Modules** tab, and under **"Choose a running instance"** pick it (it appears once it's running).
-3. Click **Browse...** and select your module `.zip`.
-4. Click **"Push and flash module."** The tool pushes the module in and flashes it via Magisk directly.
-5. **Close and reopen the instance** to activate the module.
-
-> If the ADB root shell isn't reachable, the tool drops the `.zip` in the instance's `Download` folder so you can flash it by hand from Magisk.
+One tool-specific note: this app's **Modules** tab pushes and flashes a module `.zip` into a running, rooted instance for you — start the instance, open the **Modules** tab, pick it, **Browse...** to the `.zip`, and click **Push and flash module**, then reopen the instance. It exists because BlueStacks' own file picker hands Magisk an *"Invalid Uri"* it can't open. (If the ADB root shell isn't reachable, the tool drops the `.zip` in the instance's `Download` folder so you can flash it by hand.)
 
 ### Keep Root After Updates
 
@@ -190,14 +157,9 @@ schtasks /Change /TN "BlueStacksHelper_nxt" /DISABLE
 
 **R/W toggle doesn't persist**
 - Ensure BlueStacks processes were fully terminated (kill leftovers in Task Manager if needed)
-- Keep R/W **ON** after installing Kitsune Mask
-
-**"Direct Install to /system" option missing**
-- Verify both **Root** and **R/W** are ON before launching the instance
-- Close and reopen the Kitsune Mask app within BlueStacks
 
 **Installing a module fails with "Invalid Uri"**
-- Don't use BlueStacks' own file picker — use the **Modules** tab instead. See [Installing a Magisk Module](#installing-a-magisk-module).
+- Don't use BlueStacks' own file picker — use the app's **Modules** tab instead (see [Magisk Modules, Kitsune Mask & Older Builds](#magisk-modules-kitsune-mask--older-builds)). Deeper Kitsune/module help lives in the [companion guide's Discussions](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/discussions).
 
 **Toggle operation errors**
 - Check the progress bar/status text at the bottom of the window for the error message
@@ -354,4 +316,4 @@ Contributions are welcome! Please:
 
 ---
 
-**Related Project:** [Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/)
+**Related Project:** [Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/) — the full Kitsune Mask, Magisk modules, and hiding guide, plus [Discussions](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/discussions) for help and sharing setups.
