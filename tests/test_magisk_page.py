@@ -22,36 +22,41 @@ def test_empty_label_hidden_when_instances_present(qtbot):
     assert page.no_instances_label.isVisible() is False
 
 
-def test_buttons_disabled_until_an_instance_is_selected(qtbot):
+def test_no_action_buttons_shown_until_an_instance_is_selected(qtbot):
     page = MagiskPage()
     qtbot.addWidget(page)
     page.show()
     page.set_instances({"Tiramisu64 (Normal)": None})
-    assert page.install_button.isEnabled() is False
-    assert page.uninstall_button.isEnabled() is False
-    assert page.manager_button.isEnabled() is False
+    assert page.install_button.isVisibleTo(page) is False
+    assert page.uninstall_button.isVisibleTo(page) is False
+    assert page.manager_button.isVisibleTo(page) is False
 
 
-def test_not_installed_enables_only_install(qtbot):
+def test_not_installed_shows_only_install(qtbot):
     page = MagiskPage()
     qtbot.addWidget(page)
     page.show()
     page.set_instances({"Tiramisu64 (Normal)": None})
     page._radios["Tiramisu64 (Normal)"].setChecked(True)
+    # only Install is present, and it's clickable
+    assert page.install_button.isVisibleTo(page) is True
     assert page.install_button.isEnabled() is True
-    assert page.uninstall_button.isEnabled() is False
-    assert page.manager_button.isEnabled() is False
+    assert page.uninstall_button.isVisibleTo(page) is False
+    assert page.manager_button.isVisibleTo(page) is False
     assert "not installed" in page.status_label.text().lower()
 
 
-def test_installed_enables_uninstall_and_manager_not_install(qtbot):
+def test_installed_hides_install_shows_uninstall_and_manager(qtbot):
     page = MagiskPage()
     qtbot.addWidget(page)
     page.show()
     page.set_instances({"Tiramisu64 (Normal)": _INSTALLED})
     page._radios["Tiramisu64 (Normal)"].setChecked(True)
-    assert page.install_button.isEnabled() is False
+    # no Install button when it's already installed (Rob's ask)
+    assert page.install_button.isVisibleTo(page) is False
+    assert page.uninstall_button.isVisibleTo(page) is True
     assert page.uninstall_button.isEnabled() is True
+    assert page.manager_button.isVisibleTo(page) is True
     assert page.manager_button.isEnabled() is True
     txt = page.status_label.text()
     assert "27.001-kitsune" in txt and "system" in txt

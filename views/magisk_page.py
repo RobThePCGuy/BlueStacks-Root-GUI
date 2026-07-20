@@ -29,8 +29,9 @@ class MagiskPage(QWidget):
         "images while it's shut down (no R/W toggle, no temp-root, no taps). "
         "After it finishes — start the instance, then click “Install "
         "manager app”.\n\n"
-        "Play Integrity: with the right modules, Basic and Device are reachable; "
-        "STRONG is impossible on any emulator (no hardware-backed keystore)."
+        "Play Integrity: with the right modules, Basic and Device are within "
+        "reach. STRONG relies on a hardware-backed keystore that emulators "
+        "don't have, so aim for Basic/Device here."
     )
 
     def __init__(self, parent=None):
@@ -134,8 +135,14 @@ class MagiskPage(QWidget):
         uid = self.selected_instance_id()
         installed = bool(uid and self._statuses.get(uid))
         self.status_label.setText(self._status_text(uid))
-        # Install when an instance is chosen and Magisk isn't there yet;
-        # uninstall + manager only once it is.
-        self.install_button.setEnabled(not self._busy and bool(uid) and not installed)
-        self.uninstall_button.setEnabled(not self._busy and installed)
-        self.manager_button.setEnabled(not self._busy and installed)
+        # Show only the actions that apply: Install when Magisk isn't there yet,
+        # Uninstall + manager once it is. A present-but-disabled button reads as
+        # "you could do this" when you can't, so hide it rather than grey it.
+        show_install = bool(uid) and not installed
+        self.install_button.setVisible(show_install)
+        self.uninstall_button.setVisible(installed)
+        self.manager_button.setVisible(installed)
+        # A visible button is clickable unless a background op is running.
+        self.install_button.setEnabled(show_install and not self._busy)
+        self.uninstall_button.setEnabled(installed and not self._busy)
+        self.manager_button.setEnabled(installed and not self._busy)
