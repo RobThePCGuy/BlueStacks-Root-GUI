@@ -183,3 +183,18 @@ def test_install_rezygisk_warns_when_adb_missing(qtbot, monkeypatch):
 
     warned.assert_called_once()
     ran.assert_not_called()
+
+
+def test_install_lsposed_runs_when_adb_present(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    _select(window, status=_MGR)
+    monkeypatch.setattr("adb_handler.find_adb", lambda dirs: r"C:\bs\HD-Adb.exe")
+    monkeypatch.setattr("adb_handler.instance_adb_port", lambda c, n: 5555)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+
+    window._handle_install_lsposed()
+
+    ran.assert_called_once()

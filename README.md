@@ -113,11 +113,11 @@ This is the path for current BlueStacks (5.22.150.1014 and newer). You get root 
 > If a background BlueStacks auto-update later replaces the patched files, the Dashboard raises an **"auto-update reverted your engine patch"** alert with a **Re-patch now** button. See [Keep Root After Updates](#keep-root-after-updates) to stop it happening again.
 
 > [!TIP]
-> This gets **apps** working root — enough for most root-requiring apps and root checkers. If you want **Magisk/Kitsune-managed root with modules and hiding** (Zygisk, Play Integrity Fix, LSPosed, etc.), that's a separate, more involved setup with real emulator gotchas. It's documented in the companion guide: **[Root BlueStacks with Kitsune Mask → Magisk Modules & Hiding](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask#magisk-modules--hiding-advanced)**.
+> This gets **apps** working root — enough for most root-requiring apps and root checkers. If you want **Magisk/Kitsune-managed root with modules** (Zygisk via ReZygisk, LSPosed, etc.), that's a separate, more involved setup with real emulator gotchas. It's documented in the companion guide: **[Root BlueStacks with Kitsune Mask → Magisk Modules & Hiding](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask#magisk-modules--hiding-advanced)**. Note: Play Integrity does not pass on an emulator — Google limits that to its own Google Play Games — so integrity-gated apps won't work here regardless of modules.
 
 ### Magisk Modules, Kitsune Mask & Older Builds
 
-Everything past basic root — installing **Kitsune Mask** into `/system`, choosing and flashing **Magisk modules**, **hiding** (ReZygisk, LSPosed, Play Integrity Fix, module load order), and rooting **older or MSI builds** — lives in the companion guide, so it stays in one maintained place instead of being half-covered in two:
+Everything past basic root — installing **Kitsune Mask** into `/system`, choosing and flashing **Magisk modules** (ReZygisk, LSPosed, module load order), and rooting **older or MSI builds** — lives in the companion guide, so it stays in one maintained place instead of being half-covered in two:
 
 > [!TIP]
 > **➡️ [Root BlueStacks with Kitsune Mask](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask)** — the full written walkthrough.

@@ -27,6 +27,7 @@ import adb_handler
 import magisk_system
 import magisk_payload
 import rezygisk_payload
+import lsposed_payload
 import admin
 
 from views.nav_rail import (
@@ -184,6 +185,7 @@ class MainWindow(QWidget):
         self.magisk_page.install_manager_requested.connect(self._handle_install_manager)
         self.magisk_page.uninstall_manager_requested.connect(self._handle_uninstall_manager)
         self.magisk_page.install_rezygisk_requested.connect(self._handle_install_rezygisk)
+        self.magisk_page.install_lsposed_requested.connect(self._handle_install_lsposed)
 
         self.setMinimumWidth(700)
         self.setMinimumHeight(480)
@@ -714,12 +716,32 @@ class MainWindow(QWidget):
 
         self._run_async(job, "Installing ReZygisk into %s..." % uid)
 
+    def _handle_install_lsposed(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        adb_exe, port = self._adb_and_port(instance)
+        if not adb_exe:
+            return
+
+        def job(progress):
+            def relay(msg):
+                progress(msg, -1)
+            progress("Fetching LSPosed...", -1)
+            zip_path = lsposed_payload.fetch_module(self._magisk_cache_dir(), progress=relay)
+            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
+            self.show_notice.emit("LSPosed installed", msg)
+            return ("%s Reboot the instance to activate it (needs ReZygisk); then "
+                    "manage modules from the LSPosed app." % msg)
+
+        self._run_async(job, "Installing LSPosed into %s..." % uid)
+
     def _action_buttons(self):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
                 self.dashboard_page.engine_button, self.modules_page.push_button,
                 self.magisk_page.install_button, self.magisk_page.uninstall_button,
                 self.magisk_page.manager_button, self.magisk_page.remove_manager_button,
-                self.magisk_page.rezygisk_button]
+                self.magisk_page.rezygisk_button, self.magisk_page.lsposed_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():

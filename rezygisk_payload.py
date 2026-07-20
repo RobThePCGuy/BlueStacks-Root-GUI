@@ -1,8 +1,8 @@
 """Acquire the pinned ReZygisk module -- standalone Zygisk for the emulator.
 
 BlueStacks' guest kernel doesn't support Magisk's built-in Zygisk, so Zygisk
-(the API modules like Play Integrity Fix depend on) needs ReZygisk, a ptrace-
-based standalone Zygisk implementation.  ReZygisk is a normal Magisk module:
+(which Zygisk modules like LSPosed depend on) needs ReZygisk, a ptrace-based
+standalone Zygisk implementation.  ReZygisk is a normal Magisk module:
 once the DATABIN is complete (``util_functions.sh`` present), it flashes with the
 same ``magisk --install-module`` path as any other module -- see
 ``adb_handler.install_module``.

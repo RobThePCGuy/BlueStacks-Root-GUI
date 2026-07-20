@@ -22,6 +22,7 @@ class MagiskPage(QWidget):
     install_manager_requested = pyqtSignal()
     uninstall_manager_requested = pyqtSignal()
     install_rezygisk_requested = pyqtSignal()
+    install_lsposed_requested = pyqtSignal()
 
     _EMPTY_TEXT = ("No instances detected yet. They appear here once BlueStacks "
                    "and its instances are found.")
@@ -29,11 +30,13 @@ class MagiskPage(QWidget):
     _INTEGRITY_NOTE = (
         "How this works: Magisk installs into the instance's system + data "
         "images while it's shut down (no R/W toggle, no temp-root, no taps). "
-        "After it finishes — start the instance, then click “Install "
-        "manager app”.\n\n"
-        "Play Integrity: with the right modules, Basic and Device are within "
-        "reach. STRONG relies on a hardware-backed keystore that emulators "
-        "don't have, so aim for Basic/Device here."
+        "Start the instance, install the manager app, then add modules: "
+        "ReZygisk (Zygisk — required by Zygisk modules) and LSPosed (the Xposed "
+        "framework for app-hooking modules). Reboot to activate.\n\n"
+        "Note on Play Integrity: it does not pass on BlueStacks. Google limits "
+        "emulator integrity to its own Google Play Games, so apps that gate on "
+        "it (banking, some games) won't work here — with or without these "
+        "modules. These give you root, Zygisk, and Xposed, not integrity."
     )
 
     def __init__(self, parent=None):
@@ -76,8 +79,14 @@ class MagiskPage(QWidget):
             "(magisk --install-module). Grant the su request in the manager, then "
             "reboot the instance to activate Zygisk.")
         self.rezygisk_button.clicked.connect(self.install_rezygisk_requested.emit)
+        self.lsposed_button = QPushButton("Install LSPosed (Xposed)")
+        self.lsposed_button.setToolTip(
+            "Downloads the pinned LSPosed (Zygisk) module and flashes it over ADB. "
+            "Needs ReZygisk (Zygisk) installed first. Reboot to activate; manage "
+            "modules from the LSPosed app.")
+        self.lsposed_button.clicked.connect(self.install_lsposed_requested.emit)
         for _b in (self.install_button, self.uninstall_button, self.manager_button,
-                   self.remove_manager_button, self.rezygisk_button):
+                   self.remove_manager_button, self.rezygisk_button, self.lsposed_button):
             button_row.addWidget(_b)
         layout.addLayout(button_row)
 
@@ -161,6 +170,7 @@ class MagiskPage(QWidget):
         self.manager_button.setVisible(installed and not manager)
         self.remove_manager_button.setVisible(manager)
         self.rezygisk_button.setVisible(manager)
+        self.lsposed_button.setVisible(manager)
         # A visible button is clickable unless a background op is running.
         busy = self._busy
         self.install_button.setEnabled(show_install and not busy)
@@ -168,3 +178,4 @@ class MagiskPage(QWidget):
         self.manager_button.setEnabled(installed and not manager and not busy)
         self.remove_manager_button.setEnabled(manager and not busy)
         self.rezygisk_button.setEnabled(manager and not busy)
+        self.lsposed_button.setEnabled(manager and not busy)
