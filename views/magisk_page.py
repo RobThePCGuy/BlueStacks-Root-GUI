@@ -30,9 +30,11 @@ class MagiskPage(QWidget):
     _INTEGRITY_NOTE = (
         "How this works: Magisk installs into the instance's system + data "
         "images while it's shut down (no R/W toggle, no temp-root, no taps). "
-        "Start the instance, install the manager app, then add modules: "
-        "ReZygisk (Zygisk — required by Zygisk modules) and LSPosed (the Xposed "
-        "framework for app-hooking modules). Reboot to activate.\n\n"
+        "Start the instance, install the manager, then add modules ONE AT A "
+        "TIME: install ReZygisk (Zygisk), close and reopen the instance, then "
+        "LSPosed (Xposed), and close/reopen again. Flashing both before a "
+        "restart can leave the instance unbootable. Modules enable themselves "
+        "on flash — no extra step.\n\n"
         "Note on Play Integrity: it does not pass on BlueStacks. Google limits "
         "emulator integrity to its own Google Play Games, so apps that gate on "
         "it (banking, some games) won't work here — with or without these "
@@ -59,31 +61,31 @@ class MagiskPage(QWidget):
         layout.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
-        self.install_button = QPushButton("Install Magisk (system root)")
+        self.install_button = QPushButton("Install Magisk")
+        self.install_button.setToolTip("Full offline Magisk system-root install (instance shut down).")
         self.install_button.clicked.connect(self.install_requested.emit)
         self.uninstall_button = QPushButton("Uninstall Magisk")
         self.uninstall_button.clicked.connect(self.uninstall_requested.emit)
-        self.manager_button = QPushButton("Install manager app")
+        self.manager_button = QPushButton("Install manager")
         self.manager_button.setToolTip(
-            "Installs the Magisk manager over ADB. Start the instance and enable "
-            "ADB (Settings → Advanced) first.")
+            "Installs the Magisk manager app over ADB. Start the instance and "
+            "enable ADB (Settings → Advanced) first.")
         self.manager_button.clicked.connect(self.install_manager_requested.emit)
         self.remove_manager_button = QPushButton("Remove manager")
         self.remove_manager_button.setToolTip(
             "Uninstalls the Magisk manager app over ADB. Leaves the system root "
             "in place.")
         self.remove_manager_button.clicked.connect(self.uninstall_manager_requested.emit)
-        self.rezygisk_button = QPushButton("Install ReZygisk (Zygisk)")
+        self.rezygisk_button = QPushButton("Install ReZygisk")
         self.rezygisk_button.setToolTip(
-            "Downloads the pinned ReZygisk module and flashes it over ADB "
-            "(magisk --install-module). Grant the su request in the manager, then "
-            "reboot the instance to activate Zygisk.")
+            "ReZygisk = Zygisk, required by Zygisk modules. Flashes over ADB; "
+            "close and reopen the instance afterward. Install this before LSPosed.")
         self.rezygisk_button.clicked.connect(self.install_rezygisk_requested.emit)
-        self.lsposed_button = QPushButton("Install LSPosed (Xposed)")
+        self.lsposed_button = QPushButton("Install LSPosed")
         self.lsposed_button.setToolTip(
-            "Downloads the pinned LSPosed (Zygisk) module and flashes it over ADB. "
-            "Needs ReZygisk (Zygisk) installed first. Reboot to activate; manage "
-            "modules from the LSPosed app.")
+            "LSPosed = the Xposed framework (needs ReZygisk first). Flash it after "
+            "ReZygisk and a restart; close/reopen again after. Manage modules from "
+            "the LSPosed app.")
         self.lsposed_button.clicked.connect(self.install_lsposed_requested.emit)
         for _b in (self.install_button, self.uninstall_button, self.manager_button,
                    self.remove_manager_button, self.rezygisk_button, self.lsposed_button):
