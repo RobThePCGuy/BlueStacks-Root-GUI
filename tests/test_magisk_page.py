@@ -36,7 +36,7 @@ def test_empty_label_hidden_when_instances_present(qtbot):
 def test_no_action_buttons_shown_until_an_instance_is_selected(qtbot):
     page = _page(qtbot, {"Tiramisu64 (Normal)": None})
     for b in (page.install_button, page.uninstall_button, page.manager_button,
-              page.remove_manager_button, page.rezygisk_button):
+              page.remove_manager_button, page.rezygisk_button, page.pif_button):
         assert b.isVisibleTo(page) is False
 
 
@@ -46,7 +46,7 @@ def test_not_installed_shows_only_install(qtbot):
     assert page.install_button.isVisibleTo(page) is True
     assert page.install_button.isEnabled() is True
     for b in (page.uninstall_button, page.manager_button,
-              page.remove_manager_button, page.rezygisk_button):
+              page.remove_manager_button, page.rezygisk_button, page.pif_button):
         assert b.isVisibleTo(page) is False
     assert "not installed" in page.status_label.text().lower()
 
@@ -59,6 +59,7 @@ def test_installed_without_manager_shows_uninstall_and_install_manager(qtbot):
     assert page.manager_button.isVisibleTo(page) is True         # manager not in yet
     assert page.remove_manager_button.isVisibleTo(page) is False
     assert page.rezygisk_button.isVisibleTo(page) is False       # needs the manager first
+    assert page.pif_button.isVisibleTo(page) is False
 
 
 def test_installed_with_manager_unlocks_remove_manager_and_rezygisk(qtbot):
@@ -69,6 +70,7 @@ def test_installed_with_manager_unlocks_remove_manager_and_rezygisk(qtbot):
     assert page.manager_button.isVisibleTo(page) is False        # already installed
     assert page.remove_manager_button.isVisibleTo(page) is True
     assert page.rezygisk_button.isVisibleTo(page) is True
+    assert page.pif_button.isVisibleTo(page) is True
     assert "manager" in page.status_label.text()
 
 
@@ -78,7 +80,8 @@ def test_busy_forces_visible_action_buttons_disabled(qtbot):
     assert page.rezygisk_button.isEnabled() is True
 
     page.set_busy(True)
-    for b in (page.uninstall_button, page.remove_manager_button, page.rezygisk_button):
+    for b in (page.uninstall_button, page.remove_manager_button,
+              page.rezygisk_button, page.pif_button):
         assert b.isEnabled() is False
     # a selection change mid-op must not re-enable anything
     page._radios["Tiramisu64 (Normal)"].setChecked(False)
@@ -118,10 +121,12 @@ def test_manager_button_emits_signal_when_not_yet_installed(qtbot):
         qtbot.mouseClick(page.manager_button, Qt.LeftButton)
 
 
-def test_remove_manager_and_rezygisk_buttons_emit_signals(qtbot):
+def test_remove_manager_rezygisk_and_pif_buttons_emit_signals(qtbot):
     page = _page(qtbot, {"A (Normal)": _INSTALLED_MGR})
     _select(page, "A (Normal)")
     with qtbot.waitSignal(page.uninstall_manager_requested, timeout=1000):
         qtbot.mouseClick(page.remove_manager_button, Qt.LeftButton)
     with qtbot.waitSignal(page.install_rezygisk_requested, timeout=1000):
         qtbot.mouseClick(page.rezygisk_button, Qt.LeftButton)
+    with qtbot.waitSignal(page.install_pif_requested, timeout=1000):
+        qtbot.mouseClick(page.pif_button, Qt.LeftButton)
