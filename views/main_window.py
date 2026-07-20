@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import logging
 from typing import Any
 
@@ -23,14 +24,17 @@ import integrity_patch
 import su_patch_offline
 import ext4_symlink
 import adb_handler
+import magisk_system
+import magisk_payload
 import admin
 
 from views.nav_rail import (
     NavRail, DASHBOARD as NAV_DASHBOARD, INSTANCES as NAV_INSTANCES,
-    MODULES as NAV_MODULES,
+    MAGISK as NAV_MAGISK, MODULES as NAV_MODULES,
 )
 from views.dashboard_page import DashboardPage
 from views.instances_page import InstancesPage
+from views.magisk_page import MagiskPage
 from views.modules_page import ModulesPage
 from views.progress import OperationProgressBar, step_percent
 from views import theme
@@ -147,13 +151,16 @@ class MainWindow(QWidget):
         self.pages = QStackedWidget()
         self.dashboard_page = DashboardPage()
         self.instances_page = InstancesPage()
+        self.magisk_page = MagiskPage()
         self.modules_page = ModulesPage()
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.instances_page)
+        self.pages.addWidget(self.magisk_page)
         self.pages.addWidget(self.modules_page)
         self._pages_by_key = {
             NAV_DASHBOARD: self.dashboard_page,
             NAV_INSTANCES: self.instances_page,
+            NAV_MAGISK: self.magisk_page,
             NAV_MODULES: self.modules_page,
         }
         body.addWidget(self.pages, 1)
@@ -171,6 +178,9 @@ class MainWindow(QWidget):
             lambda: self.nav_rail.select(NAV_DASHBOARD))
         self.modules_page.browse_zip_requested.connect(self._handle_browse_zip)
         self.modules_page.push_requested.connect(self._handle_push_module)
+        self.magisk_page.install_requested.connect(self._handle_install_magisk)
+        self.magisk_page.uninstall_requested.connect(self._handle_uninstall_magisk)
+        self.magisk_page.install_manager_requested.connect(self._handle_install_manager)
 
         self.setMinimumWidth(700)
         self.setMinimumHeight(480)
@@ -179,6 +189,8 @@ class MainWindow(QWidget):
         self.pages.setCurrentWidget(self._pages_by_key[key])
         if key == NAV_MODULES:
             self._refresh_running_instances()
+        elif key == NAV_MAGISK:
+            self._refresh_magisk_statuses()
 
     def _handle_toggle_theme(self) -> None:
         current = theme.load_saved_theme()
@@ -552,17 +564,119 @@ class MainWindow(QWidget):
 
         self._run_async(job, "Installing %s..." % os.path.basename(zip_path))
 
+    def _refresh_magisk_statuses(self) -> None:
+        """Fill the Magisk tab with each instance's current install state."""
+        statuses = {uid: magisk_system.magisk_status(data["data_path"])
+                    for uid, data in self.instance_data.items()}
+        self.magisk_page.set_instances(statuses)
+
+    def _selected_magisk_instance(self):
+        uid = self.magisk_page.selected_instance_id()
+        if not uid or uid not in self.instance_data:
+            QMessageBox.information(self, "No instance selected",
+                                    "Select an instance on the Magisk tab first.")
+            return None, None
+        return uid, self.instance_data[uid]
+
+    def _handle_install_magisk(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        # The modified guest /system only boots on a patched engine.
+        if instance.get("patch_mode") and self._engine_state() != "patched":
+            QMessageBox.warning(
+                self, "Patch the engine first",
+                "Installing Magisk modifies the guest system image, which only "
+                "boots on a patched engine. Patch it from the Dashboard, then "
+                "try again.")
+            return
+        app_root_note = (
+            "<p><b>Heads up:</b> this instance has app-root (Toggle Root) on. "
+            "Magisk brings its own <code>su</code> — turn app-root off on the "
+            "Instances tab to avoid two competing su providers.</p>"
+            if instance.get("root_enabled") else "")
+        if not self._confirm(
+                "Install Magisk",
+                "Install full offline Magisk system-root into %s?" % uid,
+                "<p>Writes Magisk into the instance's system and data images while "
+                "it's shut down — no R/W toggle, no temp-root. All BlueStacks "
+                "processes close first.</p>"
+                "<p>When it finishes: start the instance, enable ADB, then click "
+                "<b>Install manager app</b>.</p>" + app_root_note):
+            return
+        data_path = instance["data_path"]
+
+        def job(progress):
+            progress("Closing BlueStacks...", 0)
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            results = magisk_system.install(data_path, progress=lambda m: progress(m, -1))
+            return results[-1] if results else "Magisk installed."
+
+        self._run_async(job, "Installing Magisk into %s..." % uid)
+
+    def _handle_uninstall_magisk(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        if not self._confirm(
+                "Uninstall Magisk",
+                "Remove Magisk from %s?" % uid,
+                "<p>Removes the Magisk system footprint (restoring the stock boot "
+                "sequence) and <code>/data/adb/magisk</code>, while the instance "
+                "is shut down. All BlueStacks processes close first.</p>"):
+            return
+        data_path = instance["data_path"]
+
+        def job(progress):
+            progress("Closing BlueStacks...", 0)
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            results = magisk_system.uninstall(data_path, progress=lambda m: progress(m, -1))
+            return results[-1] if results else "Magisk removed."
+
+        self._run_async(job, "Removing Magisk from %s..." % uid)
+
+    def _handle_install_manager(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        install_dirs = [i.get("install_path") for i in self.installations]
+        adb_exe = adb_handler.find_adb(install_dirs)
+        if not adb_exe:
+            QMessageBox.warning(
+                self, "ADB not found",
+                "Couldn't find HD-Adb.exe in the BlueStacks install folder, so the "
+                "manager can't be installed.")
+            return
+        port = adb_handler.instance_adb_port(instance["config_path"], instance["original_name"])
+
+        def job(progress):
+            def relay(msg):
+                progress(msg, -1)
+            progress("Fetching the Magisk manager...", -1)
+            cache = os.path.join(tempfile.gettempdir(), "BlueStacksRootGUI-magisk", "cache")
+            apk = magisk_payload.fetch_apk(cache, progress=relay)
+            msg = adb_handler.install_manager(adb_exe, port, apk, progress=relay)
+            self.show_notice.emit("Manager installed", msg)
+            return msg
+
+        self._run_async(job, "Installing the Magisk manager into %s..." % uid)
+
     def _action_buttons(self):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
-                self.dashboard_page.engine_button, self.modules_page.push_button]
+                self.dashboard_page.engine_button, self.modules_page.push_button,
+                self.magisk_page.install_button, self.magisk_page.uninstall_button,
+                self.magisk_page.manager_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():
             b.setEnabled(not busy)
-        # The Modules push button re-derives its own enabled state on every
-        # radio/zip change, so it needs the busy flag explicitly or it would
-        # re-enable itself mid-operation.
+        # The Modules and Magisk pages re-derive their buttons' enabled state on
+        # every selection change, so they need the busy flag explicitly or they
+        # would re-enable themselves mid-operation.
         self.modules_page.set_busy(busy)
+        self.magisk_page.set_busy(busy)
         if busy:
             self.status_refresh_timer.stop()
 
@@ -627,6 +741,8 @@ class MainWindow(QWidget):
         self._last_engine_state = state
         if self.nav_rail.current() == NAV_MODULES:
             self._refresh_running_instances()
+        elif self.nav_rail.current() == NAV_MAGISK:
+            self._refresh_magisk_statuses()
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _cleanup_async(self):
