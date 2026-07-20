@@ -28,16 +28,18 @@ import magisk_system
 import magisk_payload
 import rezygisk_payload
 import lsposed_payload
+import telemetry_block
 import admin
 
 from views.nav_rail import (
     NavRail, DASHBOARD as NAV_DASHBOARD, INSTANCES as NAV_INSTANCES,
-    MAGISK as NAV_MAGISK, MODULES as NAV_MODULES,
+    MAGISK as NAV_MAGISK, MODULES as NAV_MODULES, PRIVACY as NAV_PRIVACY,
 )
 from views.dashboard_page import DashboardPage
 from views.instances_page import InstancesPage
 from views.magisk_page import MagiskPage
 from views.modules_page import ModulesPage
+from views.privacy_page import PrivacyPage
 from views.progress import OperationProgressBar, step_percent
 from views import theme
 from views import engine_rules
@@ -155,15 +157,18 @@ class MainWindow(QWidget):
         self.instances_page = InstancesPage()
         self.magisk_page = MagiskPage()
         self.modules_page = ModulesPage()
+        self.privacy_page = PrivacyPage()
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.instances_page)
         self.pages.addWidget(self.magisk_page)
         self.pages.addWidget(self.modules_page)
+        self.pages.addWidget(self.privacy_page)
         self._pages_by_key = {
             NAV_DASHBOARD: self.dashboard_page,
             NAV_INSTANCES: self.instances_page,
             NAV_MAGISK: self.magisk_page,
             NAV_MODULES: self.modules_page,
+            NAV_PRIVACY: self.privacy_page,
         }
         body.addWidget(self.pages, 1)
 
@@ -186,6 +191,8 @@ class MainWindow(QWidget):
         self.magisk_page.uninstall_manager_requested.connect(self._handle_uninstall_manager)
         self.magisk_page.install_rezygisk_requested.connect(self._handle_install_rezygisk)
         self.magisk_page.install_lsposed_requested.connect(self._handle_install_lsposed)
+        self.privacy_page.block_requested.connect(self._handle_block_telemetry)
+        self.privacy_page.unblock_requested.connect(self._handle_unblock_telemetry)
 
         self.setMinimumWidth(700)
         self.setMinimumHeight(480)
@@ -196,6 +203,8 @@ class MainWindow(QWidget):
             self._refresh_running_instances()
         elif key == NAV_MAGISK:
             self._refresh_magisk_statuses()
+        elif key == NAV_PRIVACY:
+            self._refresh_privacy_statuses()
 
     def _handle_toggle_theme(self) -> None:
         current = theme.load_saved_theme()
@@ -575,6 +584,59 @@ class MainWindow(QWidget):
                     for uid, data in self.instance_data.items()}
         self.magisk_page.set_instances(statuses)
 
+    def _refresh_privacy_statuses(self) -> None:
+        """Fill the Privacy tab with each instance's telemetry-block state."""
+        statuses = {uid: telemetry_block.status(data["data_path"])
+                    for uid, data in self.instance_data.items()}
+        self.privacy_page.set_instances(statuses)
+
+    def _handle_block_telemetry(self) -> None:
+        uid = self.privacy_page.selected_instance_id()
+        if not uid or uid not in self.instance_data:
+            QMessageBox.information(self, "No instance selected",
+                                    "Select an instance on the Privacy tab first.")
+            return
+        if not self._confirm(
+                "Block ads & telemetry",
+                "Block ad/telemetry domains in %s?" % uid,
+                "<p>Null-routes ad, tracker, and analytics domains in the guest "
+                "hosts file while the instance is shut down (all BlueStacks "
+                "processes close first). Emulator-only, and reversible.</p>"):
+            return
+        data_path = self.instance_data[uid]["data_path"]
+
+        def job(progress):
+            progress("Closing BlueStacks...", 0)
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            results = telemetry_block.apply(data_path, progress=lambda m: progress(m, -1))
+            return results[-1] if results else "Telemetry blocked."
+
+        self._run_async(job, "Blocking ads/telemetry in %s..." % uid)
+
+    def _handle_unblock_telemetry(self) -> None:
+        uid = self.privacy_page.selected_instance_id()
+        if not uid or uid not in self.instance_data:
+            QMessageBox.information(self, "No instance selected",
+                                    "Select an instance on the Privacy tab first.")
+            return
+        if not self._confirm(
+                "Remove telemetry block",
+                "Restore the original guest hosts file for %s?" % uid,
+                "<p>Removes the ad/telemetry block, while the instance is shut "
+                "down (all BlueStacks processes close first).</p>"):
+            return
+        data_path = self.instance_data[uid]["data_path"]
+
+        def job(progress):
+            progress("Closing BlueStacks...", 0)
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            results = telemetry_block.remove(data_path, progress=lambda m: progress(m, -1))
+            return results[-1] if results else "Block removed."
+
+        self._run_async(job, "Removing the block from %s..." % uid)
+
     def _selected_magisk_instance(self):
         uid = self.magisk_page.selected_instance_id()
         if not uid or uid not in self.instance_data:
@@ -741,7 +803,8 @@ class MainWindow(QWidget):
                 self.dashboard_page.engine_button, self.modules_page.push_button,
                 self.magisk_page.install_button, self.magisk_page.uninstall_button,
                 self.magisk_page.manager_button, self.magisk_page.remove_manager_button,
-                self.magisk_page.rezygisk_button, self.magisk_page.lsposed_button]
+                self.magisk_page.rezygisk_button, self.magisk_page.lsposed_button,
+                self.privacy_page.block_button, self.privacy_page.unblock_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():
@@ -751,6 +814,7 @@ class MainWindow(QWidget):
         # would re-enable themselves mid-operation.
         self.modules_page.set_busy(busy)
         self.magisk_page.set_busy(busy)
+        self.privacy_page.set_busy(busy)
         if busy:
             self.status_refresh_timer.stop()
 
@@ -817,6 +881,8 @@ class MainWindow(QWidget):
             self._refresh_running_instances()
         elif self.nav_rail.current() == NAV_MAGISK:
             self._refresh_magisk_statuses()
+        elif self.nav_rail.current() == NAV_PRIVACY:
+            self._refresh_privacy_statuses()
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _cleanup_async(self):
