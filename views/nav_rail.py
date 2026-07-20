@@ -1,4 +1,4 @@
-"""Left navigation rail: Dashboard / Instances / Modules."""
+"""Left navigation rail: Dashboard / Instances / Magisk / Modules."""
 from __future__ import annotations
 
 from PyQt5.QtCore import pyqtSignal
@@ -6,17 +6,19 @@ from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout
 
 DASHBOARD = "dashboard"
 INSTANCES = "instances"
+MAGISK = "magisk"
 MODULES = "modules"
 
 _DESTINATIONS = [
     (DASHBOARD, "Dashboard"),
     (INSTANCES, "Instances"),
+    (MAGISK, "Magisk"),
     (MODULES, "Modules"),
 ]
 
 
 class NavRail(QFrame):
-    """Emits ``navigate(str)`` with one of DASHBOARD/INSTANCES/MODULES."""
+    """Emits ``navigate(str)`` with one of DASHBOARD/INSTANCES/MAGISK/MODULES."""
 
     navigate = pyqtSignal(str)
 

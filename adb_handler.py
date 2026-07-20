@@ -26,20 +26,32 @@ _ADB_NAMES = ("HD-Adb.exe", "adb.exe")
 # bluestacks.conf: bst.instance.<name>.status.adb_port="5555"
 _ADB_PORT_KEY = ".status.adb_port"
 
+# The Magisk/Kitsune manager's package (applicationId). The full manager is a
+# normal user app installed via `adb install` after first boot -- it can't be
+# placed offline (see magisk_system.install_to_system). Used to uninstall for a
+# clean reinstall.
+MANAGER_PACKAGE = "io.github.huskydg.magisk"
+
 # Hide the console window adb would otherwise flash on Windows.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 Runner = Callable[[list], "subprocess.CompletedProcess"]
 
 
-def _run(cmd: list) -> subprocess.CompletedProcess:
+def _run(cmd: list, timeout: int = 60) -> subprocess.CompletedProcess:
     # Decode adb/magisk output as UTF-8 and never crash on odd bytes. A module's
     # install log can contain bytes that Windows' default cp1252 can't decode
     # (e.g. box-drawing/emoji), which would otherwise raise UnicodeDecodeError in
     # subprocess's reader thread and dump a traceback mid-install.
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                           encoding="utf-8", errors="replace",
                           creationflags=_NO_WINDOW)
+
+
+def _run_install(cmd: list) -> subprocess.CompletedProcess:
+    # APK install streams ~13 MB then runs dexopt; give it more than the 60s the
+    # push/shell calls use.
+    return _run(cmd, timeout=180)
 
 
 def find_adb(install_dirs) -> Optional[str]:
@@ -160,6 +172,69 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
         "\"Apps and ADB\" and try again. The zip was also copied to the "
         "instance's Download folder -- or flash it there: Modules -> Install "
         "from storage -> Download." % (out or "unknown error"))
+
+
+def install_manager(adb_exe: str, port: Optional[int], apk_path: str,
+                    progress: Optional[Callable[[str], None]] = None,
+                    runner: Runner = _run_install) -> str:
+    """Install the Magisk/Kitsune manager APK into a *running* instance as a
+    normal user app (``adb install -r``).
+
+    The full manager can't be placed offline: its stub self-downloads its UI
+    from a dead URL (greyed app), and a manager under /system/app trips Magisk's
+    "Abnormal State: system app not supported". So the offline root install
+    writes only the genuine stub footprint, and the manager is ``pm install``'d
+    here after first boot. Offline root works without it; this just gives the
+    user the app. Returns a status line; raises with a user-facing message on
+    failure.
+    """
+    def _p(msg):
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    if not os.path.isfile(apk_path):
+        raise RuntimeError("Manager APK not found: %s" % apk_path)
+
+    _p("Connecting to the instance...")
+    serial = _resolve_serial(adb_exe, port, runner)
+
+    _p("Installing the Magisk manager (%s)..." % os.path.basename(apk_path))
+    cp = runner([adb_exe, "-s", serial, "install", "-r", apk_path])
+    out = ((cp.stdout or "") + (cp.stderr or "")).strip()
+    if cp.returncode == 0 and "Success" in out:
+        return "Installed the Magisk manager. Open it from the app drawer."
+
+    low = out.lower()
+    if "signatures do not match" in low or "update_incompatible" in low:
+        raise RuntimeError(
+            "A different-signed Magisk manager is already installed. Remove it "
+            "first -- \"Remove manager\" on the Magisk tab if this app installed "
+            "it, otherwise `adb uninstall %s` or Android Settings -> Apps -- then "
+            "retry. Details: %s" % (MANAGER_PACKAGE, out))
+    raise RuntimeError("Manager install failed: %s" % (out or "unknown error"))
+
+
+def uninstall_manager(adb_exe: str, port: Optional[int],
+                      progress: Optional[Callable[[str], None]] = None,
+                      runner: Runner = _run) -> str:
+    """Remove the Magisk/Kitsune manager from a running instance. Idempotent:
+    "not installed" is reported as success, not an error."""
+    def _p(msg):
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    _p("Connecting to the instance...")
+    serial = _resolve_serial(adb_exe, port, runner)
+    _p("Removing the Magisk manager...")
+    cp = runner([adb_exe, "-s", serial, "uninstall", MANAGER_PACKAGE])
+    out = ((cp.stdout or "") + (cp.stderr or "")).strip()
+    if cp.returncode == 0 and "Success" in out:
+        return "Removed the Magisk manager."
+    if "not installed" in out.lower() or "unknown package" in out.lower():
+        return "Magisk manager was not installed."
+    raise RuntimeError("Manager uninstall failed: %s" % (out or "unknown error"))
 
 
 def list_running_instances(adb_exe: str, instances, runner: Runner = _run) -> dict:

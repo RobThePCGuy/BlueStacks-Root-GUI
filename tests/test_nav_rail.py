@@ -1,6 +1,6 @@
 from PyQt5.QtCore import Qt
 
-from views.nav_rail import NavRail, DASHBOARD, INSTANCES, MODULES
+from views.nav_rail import NavRail, DASHBOARD, INSTANCES, MAGISK, MODULES
 
 
 def test_nav_rail_starts_on_dashboard(qtbot):
@@ -8,6 +8,16 @@ def test_nav_rail_starts_on_dashboard(qtbot):
     qtbot.addWidget(rail)
     assert rail.current() == DASHBOARD
     assert rail._buttons[DASHBOARD].isChecked() is True
+
+
+def test_nav_rail_has_magisk_destination(qtbot):
+    rail = NavRail()
+    qtbot.addWidget(rail)
+    assert MAGISK in rail._buttons
+    with qtbot.waitSignal(rail.navigate, timeout=1000) as blocker:
+        qtbot.mouseClick(rail._buttons[MAGISK], Qt.LeftButton)
+    assert blocker.args == [MAGISK]
+    assert rail.current() == MAGISK
 
 
 def test_clicking_instances_emits_navigate_and_updates_active_state(qtbot):

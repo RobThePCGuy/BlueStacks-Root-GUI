@@ -81,6 +81,30 @@ def _tool_env() -> dict:
     return env
 
 
+def _run_script(device: str, lines: list[str], env: dict) -> str:
+    """Run a ``-w`` debugfs command script against ``device``; return the
+    combined stdout+stderr so callers can scan it for error markers.
+
+    Shared by both offline-edit features (classic su symlink, Magisk staging).
+    """
+    fd, path = tempfile.mkstemp(suffix=".txt")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(lines) + "\nquit\n")
+        r = _run([_debugfs(), "-w", "-f", path, device], env=env)
+        return (r.stdout or "") + (r.stderr or "")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _stat_path(device: str, ext4_path: str, env: dict) -> str:
+    """``debugfs stat`` stdout for ``ext4_path`` (empty string if not found)."""
+    return _run([_debugfs(), "-R", "stat %s" % ext4_path, device], env=env).stdout or ""
+
+
 def _root_vhd(instance_dir: str) -> str:
     return os.path.join(instance_dir, "Root.vhd")
 
@@ -123,8 +147,20 @@ def _attach(vhd_path: str) -> None:
     _diskpart('select vdisk file="%s"\nattach vdisk\n' % vhd_path)
 
 
-def _detach(vhd_path: str) -> None:
-    _diskpart('select vdisk file="%s"\ndetach vdisk\n' % vhd_path)
+def _detach(vhd_path: str) -> bool:
+    """Detach the VHD/VHDX; return True once Windows reports it gone.
+
+    A silent detach failure leaves the image mounted as a raw disk, which can
+    block the next instance boot or race BlueStacks reopening the same file, so
+    we retry and verify rather than fire-and-forget (a transient 'device busy'
+    right after debugfs closes is common).
+    """
+    for _ in range(4):
+        _diskpart('select vdisk file="%s"\ndetach vdisk\n' % vhd_path)
+        time.sleep(0.8)
+        if _disk_number(vhd_path) is None:
+            return True
+    return False
 
 
 def _disk_number(vhd_path: str) -> int | None:
@@ -151,8 +187,7 @@ def _find_xbin(device: str, env: dict) -> str | None:
 
 
 def _stat_su(device: str, xbin: str, env: dict) -> str:
-    return _run([_debugfs(), "-R", "stat %s/%s" % (xbin, _LINK_NAME), device],
-                env=env).stdout or ""
+    return _stat_path(device, "%s/%s" % (xbin, _LINK_NAME), env)
 
 
 def _fsck_ok(device: str, env: dict) -> bool:
@@ -179,7 +214,14 @@ class _Attached:
         return self
 
     def __exit__(self, *exc) -> None:
-        _detach(self.vhd)
+        if not _detach(self.vhd):
+            msg = ("failed to detach %s -- it may still be mounted as a raw disk; "
+                   "detach it via Disk Management before relaunching the instance"
+                   % self.vhd)
+            logger.error(msg)
+            # Don't mask an in-flight exception; only raise if we exited cleanly.
+            if exc[0] is None:
+                raise RuntimeError(msg)
 
 def add_su_symlink(instance_dir: str, progress=None) -> list[str]:
     """Create ``/system/xbin/su -> bstk/su`` in a shut-down instance's Root.vhd.
@@ -211,20 +253,9 @@ def add_su_symlink(instance_dir: str, progress=None) -> list[str]:
             results.append("%s/su already present" % xbin)
             return results
         _p("Creating %s/su -> %s..." % (xbin, _LINK_TARGET))
-        cmds = (f"symlink {xbin}/{_LINK_NAME} {_LINK_TARGET}\n"
-                f"sif {xbin}/{_LINK_NAME} uid 0\n"
-                f"sif {xbin}/{_LINK_NAME} gid 0\n"
-                "quit\n")
-        fd, cf = tempfile.mkstemp(suffix=".txt")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(cmds)
-            _run([_debugfs(), "-w", "-f", cf, dev], env=env)
-        finally:
-            try:
-                os.unlink(cf)
-            except OSError:
-                pass
+        _run_script(dev, [f"symlink {xbin}/{_LINK_NAME} {_LINK_TARGET}",
+                          f"sif {xbin}/{_LINK_NAME} uid 0",
+                          f"sif {xbin}/{_LINK_NAME} gid 0"], env)
         if "Type: symlink" not in _stat_su(dev, xbin, env):
             raise RuntimeError("symlink creation did not take effect")
         _p("Verifying filesystem (e2fsck)...")

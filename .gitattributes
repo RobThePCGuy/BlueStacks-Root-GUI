@@ -1,0 +1,5 @@
+# Magisk system-install assets are byte-exact captures of Magisk's own output
+# (an Android init script, a gzip, and a config parsed by grep_prop). Never
+# convert line endings or diff them as text -- CRLF would break them on the guest.
+magisk_assets/** -text
+magisk_assets/**/*.gz binary
