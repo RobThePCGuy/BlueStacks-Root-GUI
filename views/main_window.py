@@ -181,6 +181,8 @@ class MainWindow(QWidget):
         self.dashboard_page.repatch_requested.connect(self.handle_apply_patches)
         self.instances_page.toggle_root_requested.connect(self.handle_toggle_root)
         self.instances_page.toggle_rw_requested.connect(self.handle_toggle_rw)
+        self.instances_page.launch_requested.connect(self._handle_launch_instance)
+        self.instances_page.restart_requested.connect(self._handle_restart_instance)
         self.instances_page.go_to_dashboard_requested.connect(
             lambda: self.nav_rail.select(NAV_DASHBOARD))
         self.modules_page.browse_zip_requested.connect(self._handle_browse_zip)
@@ -499,6 +501,45 @@ class MainWindow(QWidget):
     def handle_toggle_rw(self):
         self._perform_operation(self._toggle_single_instance_rw, "R/W")
 
+    def _selected_single_instance(self):
+        ids = self.instances_page.selected_ids()
+        if len(ids) != 1:
+            QMessageBox.information(self, "Select one instance",
+                                    "Select exactly one instance to launch or restart.")
+            return None, None
+        return ids[0], self.instance_data.get(ids[0])
+
+    def _handle_launch_instance(self):
+        uid, instance = self._selected_single_instance()
+        if not instance:
+            return
+        install = instance.get("install_path")
+        if not install:
+            QMessageBox.warning(self, "Can't launch", "No BlueStacks install path for %s." % uid)
+            return
+        try:
+            instance_handler.launch_instance(install, instance["original_name"])
+            self.progress_bar.finish("Launching %s..." % uid)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Launch failed", str(exc))
+
+    def _handle_restart_instance(self):
+        uid, instance = self._selected_single_instance()
+        if not instance:
+            return
+        install = instance.get("install_path")
+        if not install:
+            QMessageBox.warning(self, "Can't restart", "No BlueStacks install path for %s." % uid)
+            return
+        name = instance["original_name"]
+
+        def job(progress):
+            progress("Closing BlueStacks...", 0)
+            instance_handler.restart_instance(install, name)
+            return "Restarted %s. Give it a moment to boot." % uid
+
+        self._run_async(job, "Restarting %s..." % uid)
+
     def _refresh_running_instances(self) -> None:
         """Populate the Modules tab's running-instance list.
 
@@ -800,6 +841,7 @@ class MainWindow(QWidget):
 
     def _action_buttons(self):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
+                self.instances_page.launch_button, self.instances_page.restart_button,
                 self.dashboard_page.engine_button, self.modules_page.push_button,
                 self.magisk_page.install_button, self.magisk_page.uninstall_button,
                 self.magisk_page.manager_button, self.magisk_page.remove_manager_button,

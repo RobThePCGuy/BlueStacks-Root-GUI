@@ -13,6 +13,8 @@ import constants
 class InstancesPage(QWidget):
     toggle_root_requested = pyqtSignal()
     toggle_rw_requested = pyqtSignal()
+    launch_requested = pyqtSignal()
+    restart_requested = pyqtSignal()
     go_to_dashboard_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -59,8 +61,17 @@ class InstancesPage(QWidget):
         self.root_toggle_button.clicked.connect(self.toggle_root_requested.emit)
         self.rw_toggle_button = QPushButton("Toggle R/W")
         self.rw_toggle_button.clicked.connect(self.toggle_rw_requested.emit)
-        button_row.addWidget(self.root_toggle_button)
-        button_row.addWidget(self.rw_toggle_button)
+        self.launch_button = QPushButton("Launch")
+        self.launch_button.setToolTip("Start the selected instance (HD-Player).")
+        self.launch_button.clicked.connect(self.launch_requested.emit)
+        self.restart_button = QPushButton("Restart")
+        self.restart_button.setToolTip(
+            "Close all BlueStacks processes and relaunch the selected instance — "
+            "the reliable reboot (adb reboot doesn't restart BlueStacks cleanly).")
+        self.restart_button.clicked.connect(self.restart_requested.emit)
+        for _b in (self.root_toggle_button, self.rw_toggle_button,
+                   self.launch_button, self.restart_button):
+            button_row.addWidget(_b)
         layout.addLayout(button_row)
 
         self.checkboxes: dict[str, QCheckBox] = {}

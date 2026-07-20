@@ -129,3 +129,13 @@ def test_set_instances_refresh_does_not_leak_widgets(qtbot):
 
     page.set_instances(data)
     assert page.instance_layout.count() == count_after_first
+
+
+def test_launch_and_restart_buttons_emit_signals(qtbot):
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    with qtbot.waitSignal(page.launch_requested, timeout=1000):
+        qtbot.mouseClick(page.launch_button, Qt.LeftButton)
+    with qtbot.waitSignal(page.restart_requested, timeout=1000):
+        qtbot.mouseClick(page.restart_button, Qt.LeftButton)

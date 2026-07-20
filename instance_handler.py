@@ -4,12 +4,41 @@ from __future__ import annotations
 import os
 import glob
 import logging
+import subprocess
+import time
 import psutil
 
 
 import constants
 
 logger = logging.getLogger(__name__)
+
+
+def launch_instance(install_dir: str, instance_name: str) -> None:
+    """Start a specific BlueStacks instance (``HD-Player.exe --instance <name>``).
+
+    Raises with an actionable message if the player exe isn't found.
+    """
+    exe = os.path.join(install_dir, "HD-Player.exe")
+    if not os.path.isfile(exe):
+        raise RuntimeError("HD-Player.exe not found in %s" % install_dir)
+    logger.info("Launching instance %s via %s", instance_name, exe)
+    subprocess.Popen([exe, "--instance", instance_name], close_fds=True)
+
+
+def restart_instance(install_dir: str, instance_name: str,
+                     wait_ms: int = 2500) -> None:
+    """Kill all BlueStacks processes, then relaunch ``instance_name``.
+
+    This is the reliable "reboot" on BlueStacks: ``adb reboot`` does not cleanly
+    restart an instance, but a full process kill + relaunch does (and it clears
+    the state that can leave an instance unbootable right after flashing
+    modules). Terminating hits every BlueStacks process, so only the requested
+    instance comes back.
+    """
+    terminate_bluestacks()
+    time.sleep(max(0, wait_ms) / 1000.0)  # let processes + disk locks release
+    launch_instance(install_dir, instance_name)
 
 
 def modify_instance_files(instance_path: str, new_mode: str) -> None:
