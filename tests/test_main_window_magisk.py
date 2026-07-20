@@ -198,3 +198,49 @@ def test_install_lsposed_runs_when_adb_present(qtbot, monkeypatch):
     window._handle_install_lsposed()
 
     ran.assert_called_once()
+
+
+def _inst_with(uid, **extra):
+    d = {"patch_mode": True, "root_enabled": False, "config_path": "c",
+         "original_name": uid.split(" ")[0], "data_path": r"C:\i", "install_path": r"C:\bs"}
+    d.update(extra)
+    return {uid: d}
+
+
+def test_launch_instance_needs_exactly_one_selected(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _inst_with("Tiramisu64 (Normal)")
+    window.instances_page.set_instances(window.instance_data)
+    # nothing selected -> informs, doesn't launch
+    info = MagicMock()
+    monkeypatch.setattr(QMessageBox, "information", info)
+    launched = MagicMock()
+    monkeypatch.setattr("instance_handler.launch_instance", launched)
+    window._handle_launch_instance()
+    info.assert_called_once()
+    launched.assert_not_called()
+
+
+def test_launch_instance_runs_for_single_selection(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _inst_with("Tiramisu64 (Normal)")
+    window.instances_page.set_instances(window.instance_data)
+    window.instances_page.checkboxes["Tiramisu64 (Normal)"].setChecked(True)
+    launched = MagicMock()
+    monkeypatch.setattr("instance_handler.launch_instance", launched)
+    window._handle_launch_instance()
+    launched.assert_called_once()
+
+
+def test_restart_instance_runs_async(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _inst_with("Tiramisu64 (Normal)")
+    window.instances_page.set_instances(window.instance_data)
+    window.instances_page.checkboxes["Tiramisu64 (Normal)"].setChecked(True)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+    window._handle_restart_instance()
+    ran.assert_called_once()

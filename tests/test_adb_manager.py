@@ -9,7 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from adb_handler import MANAGER_PACKAGE, install_manager, uninstall_manager
+from adb_handler import (
+    MANAGER_PACKAGE, install_manager, install_module, uninstall_manager,
+)
 
 
 def _cp(stdout="", stderr="", rc=0):
@@ -84,6 +86,30 @@ def test_install_manager_generic_failure_surfaces_output(tmp_path):
 
     with pytest.raises(RuntimeError, match="INSUFFICIENT_STORAGE"):
         install_manager("adb", 5555, apk, runner=_runner(handle))
+
+
+def test_install_module_preauthorizes_shell_su_before_flashing(tmp_path):
+    """The flash first writes an allow policy for the shell uid so magiskd
+    doesn't auto-deny the su during the flash."""
+    zip_path = tmp_path / "mod.zip"
+    zip_path.write_bytes(b"PK\x03\x04mod")
+
+    def handle(cmd):
+        if cmd[1] == "connect":
+            return _cp("connected to 127.0.0.1:5555")
+        if "install-module" in " ".join(cmd):
+            return _cp("Success")
+        return _cp()  # sqlite pre-grant, push, rm
+
+    runner = _runner(handle)
+    install_module("adb", 5555, str(zip_path), runner=runner)
+
+    joined = [" ".join(c) for c in runner.calls]
+    # a permanent allow policy for the shell uid (2000) was set before the flash
+    policy = next(i for i, c in enumerate(joined)
+                  if "magisk --sqlite" in c and "policies" in c and "2000,2,0" in c)
+    flash = next(i for i, c in enumerate(joined) if "install-module" in c)
+    assert policy < flash
 
 
 def test_uninstall_manager_success(tmp_path):

@@ -124,6 +124,24 @@ def _resolve_serial(adb_exe: str, port: Optional[int], runner: Runner) -> str:
     return devices[0]
 
 
+def _ensure_su_policy(adb_exe: str, serial: str, runner: Runner) -> None:
+    """Persist a permanent 'allow' Superuser policy for the shell uid (2000) so
+    magiskd stops prompting -- and, if the prompt isn't tapped fast enough,
+    auto-DENYING -- ``su`` during a flash. The very first ``su`` here may still
+    pop the grant once; after it's recorded, every later flash is automatic
+    (this is the "flip auto-grant before flashing" step, done for you).
+
+    Best-effort: any failure is swallowed so it never aborts the flash itself.
+    """
+    sql = ("REPLACE INTO policies (uid,policy,until,logging,notification) "
+           "VALUES(2000,2,0,1,1)")  # policy 2 = allow, until 0 = forever
+    try:
+        runner([adb_exe, "-s", serial, "shell", "su", "-c",
+                'magisk --sqlite "%s"' % sql])
+    except Exception:  # noqa: BLE001 - a pre-grant failure must not stop the flash
+        logger.debug("ensure_su_policy failed (non-fatal)", exc_info=True)
+
+
 def install_module(adb_exe: str, port: Optional[int], local_zip: str,
                    progress: Optional[Callable[[str], None]] = None,
                    runner: Runner = _run) -> str:
@@ -145,6 +163,11 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
     name = os.path.basename(local_zip)
     _p("Connecting to the instance...")
     serial = _resolve_serial(adb_exe, port, runner)
+
+    # Pre-authorize shell root so the flash isn't auto-denied. The first flash
+    # of a fresh install may still prompt once (tap Grant); after that it sticks.
+    _p("Authorizing root (tap Grant in the instance if a prompt appears)...")
+    _ensure_su_policy(adb_exe, serial, runner)
 
     tmp = "/data/local/tmp/" + name
     _p("Pushing %s..." % name)
