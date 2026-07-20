@@ -20,6 +20,8 @@ class MagiskPage(QWidget):
     install_requested = pyqtSignal()
     uninstall_requested = pyqtSignal()
     install_manager_requested = pyqtSignal()
+    uninstall_manager_requested = pyqtSignal()
+    install_rezygisk_requested = pyqtSignal()
 
     _EMPTY_TEXT = ("No instances detected yet. They appear here once BlueStacks "
                    "and its instances are found.")
@@ -63,9 +65,20 @@ class MagiskPage(QWidget):
             "Installs the Magisk manager over ADB. Start the instance and enable "
             "ADB (Settings → Advanced) first.")
         self.manager_button.clicked.connect(self.install_manager_requested.emit)
-        button_row.addWidget(self.install_button)
-        button_row.addWidget(self.uninstall_button)
-        button_row.addWidget(self.manager_button)
+        self.remove_manager_button = QPushButton("Remove manager")
+        self.remove_manager_button.setToolTip(
+            "Uninstalls the Magisk manager app over ADB. Leaves the system root "
+            "in place.")
+        self.remove_manager_button.clicked.connect(self.uninstall_manager_requested.emit)
+        self.rezygisk_button = QPushButton("Install ReZygisk (Zygisk)")
+        self.rezygisk_button.setToolTip(
+            "Downloads the pinned ReZygisk module and flashes it over ADB "
+            "(magisk --install-module). Grant the su request in the manager, then "
+            "reboot the instance to activate Zygisk.")
+        self.rezygisk_button.clicked.connect(self.install_rezygisk_requested.emit)
+        for _b in (self.install_button, self.uninstall_button, self.manager_button,
+                   self.remove_manager_button, self.rezygisk_button):
+            button_row.addWidget(_b)
         layout.addLayout(button_row)
 
         note = QLabel(self._INTEGRITY_NOTE)
@@ -133,16 +146,25 @@ class MagiskPage(QWidget):
 
     def _update(self, *_args) -> None:
         uid = self.selected_instance_id()
-        installed = bool(uid and self._statuses.get(uid))
+        st = self._statuses.get(uid) if uid else None
+        installed = bool(st)
+        manager = installed and "manager" in (st.get("components") or [])
         self.status_label.setText(self._status_text(uid))
-        # Show only the actions that apply: Install when Magisk isn't there yet,
-        # Uninstall + manager once it is. A present-but-disabled button reads as
-        # "you could do this" when you can't, so hide it rather than grey it.
+        # Show only the actions that apply, in flow order: Install Magisk when
+        # it's not there; once installed, Uninstall + Install manager; once the
+        # manager is in, Remove manager + Install ReZygisk (which needs the
+        # manager to grant su for the flash). A present-but-disabled button reads
+        # as "you could do this" when you can't, so hide rather than grey.
         show_install = bool(uid) and not installed
         self.install_button.setVisible(show_install)
         self.uninstall_button.setVisible(installed)
-        self.manager_button.setVisible(installed)
+        self.manager_button.setVisible(installed and not manager)
+        self.remove_manager_button.setVisible(manager)
+        self.rezygisk_button.setVisible(manager)
         # A visible button is clickable unless a background op is running.
-        self.install_button.setEnabled(show_install and not self._busy)
-        self.uninstall_button.setEnabled(installed and not self._busy)
-        self.manager_button.setEnabled(installed and not self._busy)
+        busy = self._busy
+        self.install_button.setEnabled(show_install and not busy)
+        self.uninstall_button.setEnabled(installed and not busy)
+        self.manager_button.setEnabled(installed and not manager and not busy)
+        self.remove_manager_button.setEnabled(manager and not busy)
+        self.rezygisk_button.setEnabled(manager and not busy)

@@ -208,8 +208,9 @@ def install_manager(adb_exe: str, port: Optional[int], apk_path: str,
     low = out.lower()
     if "signatures do not match" in low or "update_incompatible" in low:
         raise RuntimeError(
-            "A different-signed Magisk manager is already installed. Uninstall "
-            "it first (Magisk tab -> Remove manager, or `adb uninstall %s`) and "
+            "A different-signed Magisk manager is already installed. Remove it "
+            "first -- \"Remove manager\" on the Magisk tab if this app installed "
+            "it, otherwise `adb uninstall %s` or Android Settings -> Apps -- then "
             "retry. Details: %s" % (MANAGER_PACKAGE, out))
     raise RuntimeError("Manager install failed: %s" % (out or "unknown error"))
 

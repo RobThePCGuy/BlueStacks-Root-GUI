@@ -290,8 +290,9 @@ def _verify_staged(device: str, tools: dict[str, str], env: dict,
 
 def _write_manifest(instance_dir: str, components: list[str]) -> None:
     """Stamp the install manifest (provenance + what was written) next to
-    Data.vhdx.  ``components`` is what's present, e.g. ["system","databin",
-    "manager"] for a full install or ["databin"] for a DATABIN-only stage."""
+    Data.vhdx.  ``components`` is what's actually present, e.g. ["system",
+    "databin"] for an offline install ("manager" is added later, once the app
+    is pm-installed post-boot) or ["databin"] for a DATABIN-only stage."""
     data = {
         "magisk": True,
         "payload": _mp.PAYLOAD_NAME,
@@ -322,6 +323,28 @@ def magisk_status(instance_dir: str) -> dict | None:
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def add_component(instance_dir: str, component: str) -> None:
+    """Record an extra component (e.g. "manager") in an existing manifest, so
+    the GUI status reflects it.  No-op if Magisk isn't installed here."""
+    st = magisk_status(instance_dir)
+    if st is None:
+        return
+    comps = set(st.get("components", []))
+    comps.add(component)
+    _write_manifest(instance_dir, sorted(comps))
+
+
+def remove_component(instance_dir: str, component: str) -> None:
+    """Drop a component (e.g. "manager") from an existing manifest.  No-op if
+    Magisk isn't installed here or the component isn't recorded."""
+    st = magisk_status(instance_dir)
+    if st is None:
+        return
+    comps = set(st.get("components", []))
+    comps.discard(component)
+    _write_manifest(instance_dir, sorted(comps))
 
 
 def stage_databin(instance_dir: str, tools: dict[str, str],
@@ -453,6 +476,10 @@ def _system_write_commands(sysroot: str, srcs: dict[str, str]) -> list[str]:
     cmds += ["cd %s" % initdir, "rm bootanim.rc",
              "write %s bootanim.rc" % _dq(_cygpath(srcs["bootanim.rc"])),
              "sif %s mode 0100664" % bo, "sif %s uid 1000" % bo, "sif %s gid 1000" % bo,
+             # rm any prior backup first: debugfs `write` won't overwrite an
+             # existing file, so a reinstall/retry over a leftover .gz would
+             # otherwise silently no-op. (Harmless "not found" on a fresh install.)
+             "rm bootanim.rc.gz",
              "write %s bootanim.rc.gz" % _dq(_cygpath(srcs["bootanim.rc.gz"])),
              "sif %s mode 0100600" % boz, "sif %s uid 0" % boz, "sif %s gid 0" % boz]
     return cmds
@@ -507,7 +534,8 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
         out = _es._run_script(dev, script, env)
         try:
             for path in ("%s/config" % magiskdir, "%s/magisk64" % magiskdir,
-                         "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot):
+                         "%s/stub.apk" % magiskdir, "%s/etc/init/bootanim.rc" % sysroot,
+                         "%s/etc/init/bootanim.rc.gz" % sysroot):
                 if "Inode:" not in _es._stat_path(dev, path, env):
                     raise RuntimeError("system install incomplete: missing %s (debugfs: %s)"
                                        % (path, _errtail(out)))
@@ -589,11 +617,18 @@ def _default_work_dir() -> str:
 def install(instance_dir: str, work_dir: str | None = None, progress=None) -> list[str]:
     """Full offline Magisk-to-system install for one instance.
 
-    Fetches the pinned payload, writes the /system footprint + preinstalled
-    manager into Root.vhd, stages /data/adb/magisk into Data.vhdx, and stamps a
-    manifest.  The instance must be shut down.  The engine integrity patch is the
-    caller's job (integrity_patch.patch_installation) -- without it a modified
-    system won't boot.
+    Fetches the pinned payload, writes the /system footprint into Root.vhd,
+    stages /data/adb/magisk into Data.vhdx, and stamps a manifest.  The manager
+    app is NOT installed here -- it's pm-installed over ADB after first boot (see
+    the adb-side install_manager); the manifest records ["system", "databin"]
+    and "manager" is added once that step succeeds.  The instance must be shut
+    down.  The engine integrity patch is the caller's job
+    (integrity_patch.patch_installation) -- without it a modified system won't
+    boot.
+
+    All-or-nothing across the two disks: if DATABIN staging fails after the
+    /system footprint is written, the /system side is rolled back so the instance
+    boots stock rather than into a Magisk init with no DATABIN.
     """
     def _p(msg: str) -> None:
         logger.info(msg)
@@ -609,10 +644,18 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
 
     results: list[str] = []
     results += install_to_system(instance_dir, tools, stub, progress=progress)
-    results += stage_databin(instance_dir, tools, extras=extras, progress=progress)
-    _write_manifest(instance_dir, ["system", "databin", "manager"])
-    results.append("Magisk %s installed offline (system + complete DATABIN + manager)."
-                   % _mp.PAYLOAD_VERSION)
+    try:
+        results += stage_databin(instance_dir, tools, extras=extras, progress=progress)
+    except Exception:
+        _p("DATABIN staging failed -- rolling back the /system footprint...")
+        try:
+            uninstall_from_system(instance_dir, progress=progress)
+        except Exception:
+            logger.exception("cross-step rollback of the /system footprint also failed")
+        raise
+    _write_manifest(instance_dir, ["system", "databin"])
+    results.append("Magisk %s installed offline (system + complete DATABIN). Boot "
+                   "the instance, then install the manager app." % _mp.PAYLOAD_VERSION)
     return results
 
 

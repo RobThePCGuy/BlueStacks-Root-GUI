@@ -26,6 +26,7 @@ import ext4_symlink
 import adb_handler
 import magisk_system
 import magisk_payload
+import rezygisk_payload
 import admin
 
 from views.nav_rail import (
@@ -181,6 +182,8 @@ class MainWindow(QWidget):
         self.magisk_page.install_requested.connect(self._handle_install_magisk)
         self.magisk_page.uninstall_requested.connect(self._handle_uninstall_magisk)
         self.magisk_page.install_manager_requested.connect(self._handle_install_manager)
+        self.magisk_page.uninstall_manager_requested.connect(self._handle_uninstall_manager)
+        self.magisk_page.install_rezygisk_requested.connect(self._handle_install_rezygisk)
 
         self.setMinimumWidth(700)
         self.setMinimumHeight(480)
@@ -637,37 +640,86 @@ class MainWindow(QWidget):
 
         self._run_async(job, "Removing Magisk from %s..." % uid)
 
-    def _handle_install_manager(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
+    def _adb_and_port(self, instance):
+        """(adb_exe, port) for an over-ADB action on a running instance, or
+        (None, None) after warning if ADB isn't present."""
         install_dirs = [i.get("install_path") for i in self.installations]
         adb_exe = adb_handler.find_adb(install_dirs)
         if not adb_exe:
             QMessageBox.warning(
                 self, "ADB not found",
-                "Couldn't find HD-Adb.exe in the BlueStacks install folder, so the "
-                "manager can't be installed.")
-            return
+                "Couldn't find HD-Adb.exe in the BlueStacks install folder, so "
+                "this can't run over ADB.")
+            return None, None
         port = adb_handler.instance_adb_port(instance["config_path"], instance["original_name"])
+        return adb_exe, port
+
+    def _magisk_cache_dir(self):
+        return os.path.join(tempfile.gettempdir(), "BlueStacksRootGUI-magisk", "cache")
+
+    def _handle_install_manager(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        adb_exe, port = self._adb_and_port(instance)
+        if not adb_exe:
+            return
+        data_path = instance["data_path"]
 
         def job(progress):
             def relay(msg):
                 progress(msg, -1)
             progress("Fetching the Magisk manager...", -1)
-            cache = os.path.join(tempfile.gettempdir(), "BlueStacksRootGUI-magisk", "cache")
-            apk = magisk_payload.fetch_apk(cache, progress=relay)
+            apk = magisk_payload.fetch_apk(self._magisk_cache_dir(), progress=relay)
             msg = adb_handler.install_manager(adb_exe, port, apk, progress=relay)
+            magisk_system.add_component(data_path, "manager")  # reflect it in the status
             self.show_notice.emit("Manager installed", msg)
             return msg
 
         self._run_async(job, "Installing the Magisk manager into %s..." % uid)
 
+    def _handle_uninstall_manager(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        adb_exe, port = self._adb_and_port(instance)
+        if not adb_exe:
+            return
+        data_path = instance["data_path"]
+
+        def job(progress):
+            msg = adb_handler.uninstall_manager(adb_exe, port, progress=lambda m: progress(m, -1))
+            magisk_system.remove_component(data_path, "manager")
+            self.show_notice.emit("Manager removed", msg)
+            return msg
+
+        self._run_async(job, "Removing the Magisk manager from %s..." % uid)
+
+    def _handle_install_rezygisk(self) -> None:
+        uid, instance = self._selected_magisk_instance()
+        if instance is None:
+            return
+        adb_exe, port = self._adb_and_port(instance)
+        if not adb_exe:
+            return
+
+        def job(progress):
+            def relay(msg):
+                progress(msg, -1)
+            progress("Fetching ReZygisk...", -1)
+            zip_path = rezygisk_payload.fetch_module(self._magisk_cache_dir(), progress=relay)
+            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
+            self.show_notice.emit("ReZygisk installed", msg)
+            return "%s Reboot the instance to activate Zygisk." % msg
+
+        self._run_async(job, "Installing ReZygisk into %s..." % uid)
+
     def _action_buttons(self):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
                 self.dashboard_page.engine_button, self.modules_page.push_button,
                 self.magisk_page.install_button, self.magisk_page.uninstall_button,
-                self.magisk_page.manager_button]
+                self.magisk_page.manager_button, self.magisk_page.remove_manager_button,
+                self.magisk_page.rezygisk_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():

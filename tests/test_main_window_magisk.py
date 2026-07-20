@@ -132,3 +132,54 @@ def test_install_manager_runs_when_adb_present(qtbot, monkeypatch):
     window._handle_install_manager()
 
     ran.assert_called_once()
+
+
+_MGR = {"magisk": True, "version": "27.001-kitsune",
+        "components": ["databin", "manager", "system"]}
+
+
+def test_uninstall_manager_runs_when_adb_present(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    _select(window, status=_MGR)
+    monkeypatch.setattr("adb_handler.find_adb", lambda dirs: r"C:\bs\HD-Adb.exe")
+    monkeypatch.setattr("adb_handler.instance_adb_port", lambda c, n: 5555)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+
+    window._handle_uninstall_manager()
+
+    ran.assert_called_once()
+
+
+def test_install_rezygisk_runs_when_adb_present(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    _select(window, status=_MGR)
+    monkeypatch.setattr("adb_handler.find_adb", lambda dirs: r"C:\bs\HD-Adb.exe")
+    monkeypatch.setattr("adb_handler.instance_adb_port", lambda c, n: 5555)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+
+    window._handle_install_rezygisk()
+
+    ran.assert_called_once()
+
+
+def test_install_rezygisk_warns_when_adb_missing(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    _select(window, status=_MGR)
+    monkeypatch.setattr("adb_handler.find_adb", lambda dirs: None)
+    warned = MagicMock()
+    monkeypatch.setattr(QMessageBox, "warning", warned)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+
+    window._handle_install_rezygisk()
+
+    warned.assert_called_once()
+    ran.assert_not_called()

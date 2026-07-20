@@ -247,3 +247,59 @@ def test_manifest_roundtrip(tmp_path):
     assert st["version"] == ms._mp.PAYLOAD_VERSION
     ms._clear_manifest(str(tmp_path))
     assert ms.magisk_status(str(tmp_path)) is None
+
+
+def test_add_and_remove_component_update_manifest(tmp_path):
+    # offline install stamps system+databin; the manager is added after the
+    # adb step, removed if the manager is uninstalled.
+    ms._write_manifest(str(tmp_path), ["system", "databin"])
+    ms.add_component(str(tmp_path), "manager")
+    assert ms.magisk_status(str(tmp_path))["components"] == ["databin", "manager", "system"]
+    ms.add_component(str(tmp_path), "manager")  # idempotent
+    assert ms.magisk_status(str(tmp_path))["components"] == ["databin", "manager", "system"]
+    ms.remove_component(str(tmp_path), "manager")
+    assert ms.magisk_status(str(tmp_path))["components"] == ["databin", "system"]
+
+
+def test_component_helpers_noop_when_not_installed(tmp_path):
+    ms.add_component(str(tmp_path), "manager")     # no manifest -> nothing happens
+    assert ms.magisk_status(str(tmp_path)) is None
+    ms.remove_component(str(tmp_path), "manager")  # also a no-op
+    assert ms.magisk_status(str(tmp_path)) is None
+
+
+def test_system_write_commands_rm_gz_before_rewrite():
+    # debugfs `write` won't overwrite an existing file, so a reinstall over a
+    # leftover bootanim.rc.gz must rm it first.
+    srcs = {n: r"C:\a\%s" % n for n in
+            ("config", "magisk32", "magisk64", "magiskinit", "magiskpolicy",
+             "stub.apk", "bootanim.rc", "bootanim.rc.gz")}
+    cmds = ms._system_write_commands("/android/system", srcs)
+    rm_i = cmds.index("rm bootanim.rc.gz")
+    write_i = next(i for i, c in enumerate(cmds)
+                   if c.startswith("write ") and c.endswith(" bootanim.rc.gz"))
+    assert rm_i < write_i
+
+
+def test_install_rolls_back_system_when_databin_fails(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(ms._mp, "fetch_apk", lambda *a, **k: "apk")
+    monkeypatch.setattr(ms._mp, "extract_tools", lambda *a, **k: {"busybox": "b"})
+    monkeypatch.setattr(ms._mp, "extract_stub_apk", lambda *a, **k: "stub")
+    monkeypatch.setattr(ms._mp, "extract_databin_extras", lambda *a, **k: {})
+    monkeypatch.setattr(ms, "install_to_system", lambda *a, **k: calls.append("sys") or ["sys ok"])
+
+    def boom(*a, **k):
+        calls.append("databin")
+        raise RuntimeError("databin failed")
+    monkeypatch.setattr(ms, "stage_databin", boom)
+    monkeypatch.setattr(ms, "uninstall_from_system", lambda *a, **k: calls.append("rollback") or [])
+    wrote = []
+    monkeypatch.setattr(ms, "_write_manifest", lambda *a, **k: wrote.append(a))
+
+    with pytest.raises(RuntimeError, match="databin failed"):
+        ms.install(str(tmp_path), work_dir=str(tmp_path / "w"))
+
+    # /system was rolled back, and no manifest was stamped on the failed install
+    assert calls == ["sys", "databin", "rollback"]
+    assert wrote == []
