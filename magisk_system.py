@@ -66,6 +66,26 @@ _EXEC_TOOLS = ("busybox", "magisk32", "magisk64", "magiskinit", "magiskpolicy", 
 # that are data, not executables -- everything else in the DATABIN is 0755.
 _DATABIN_DATA_FILES = ("stub.apk", "kernel.keyblock", "kernel_data_key.vbprivk")
 
+# service.d auto-grant. Magisk runs /data/adb/service.d/*.sh as root at
+# late_start (every boot). We plant a tiny script that force-allows the ADB
+# shell (uid 2000) in Magisk's policy DB, so a su prompt the user never sees
+# can't auto-DENY -- and permanently lock out -- ADB module flashing. The shell
+# itself can't set this (it needs the su it's being denied); service.d runs as
+# root, so it can. Scoped to the shell uid; apps still prompt. Live-proven on
+# BlueStacks A13: survives a cold boot, re-grants silently, no tap.
+_SERVICE_D = "/adb/service.d"  # ext4 path inside Data.vhdx (fs root == guest /data)
+_ADB_GRANT_SCRIPT = "00-bsrgui-adbgrant.sh"
+_ADB_GRANT_BODY = (
+    "#!/system/bin/sh\n"
+    "# BlueStacks-Root-GUI: force-allow the ADB shell (uid 2000) at boot so\n"
+    "# module flashes over ADB are never auto-denied (the missed-prompt -> deny\n"
+    "# trap). Runs as root via Magisk service.d; scoped to the shell uid only.\n"
+    "for i in 1 2 3 4 5 6 7 8 9 10; do\n"
+    '  magisk --sqlite "REPLACE INTO policies (uid,policy,until,logging,notification) VALUES(2000,2,0,0,0)" && break\n'
+    "  sleep 2\n"
+    "done\n"
+)
+
 
 def _databin_mode(basename: str) -> str:
     """debugfs ``sif mode`` for a DATABIN file: scripts/binaries are 0755, the
@@ -261,6 +281,35 @@ def _databin_extra_commands(extras: dict[str, str]) -> list[str]:
     return cmds
 
 
+def _grant_script_tempfile() -> str:
+    """Write the service.d auto-grant script to a temp file (LF endings for the
+    guest shell) and return its path.  The caller removes it after staging."""
+    fd, path = tempfile.mkstemp(suffix="-" + _ADB_GRANT_SCRIPT)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_ADB_GRANT_BODY)
+    return path
+
+
+def _service_d_grant_commands(script_hostpath: str, dir_exists: bool) -> list[str]:
+    """Pure debugfs commands to install the ADB-shell auto-grant script into
+    ``/data/adb/service.d`` root-owned + executable (0755).  Creates service.d
+    first on a fresh (never-booted-with-Magisk) instance that lacks it.  ``write``
+    won't overwrite, so a leftover copy is ``rm``'d first (a harmless "not found"
+    when absent, same pattern as the bootanim.rc.gz rewrite)."""
+    dst = "%s/%s" % (_SERVICE_D, _ADB_GRANT_SCRIPT)
+    cmds: list[str] = []
+    if not dir_exists:
+        cmds += ["mkdir %s" % _SERVICE_D, "sif %s mode 040700" % _SERVICE_D,
+                 "sif %s uid 0" % _SERVICE_D, "sif %s gid 0" % _SERVICE_D,
+                 "ea_set %s security.selinux %s" % (_SERVICE_D, _SELINUX_CTX)]
+    cmds += ["cd %s" % _SERVICE_D,
+             "rm %s" % _ADB_GRANT_SCRIPT,  # write won't overwrite; harmless if absent
+             "write %s %s" % (_dq(_cygpath(script_hostpath)), _ADB_GRANT_SCRIPT),  # quoted src, bare dest
+             "sif %s mode 0100755" % dst, "sif %s uid 0" % dst, "sif %s gid 0" % dst,
+             "ea_set %s security.selinux %s" % (dst, _SELINUX_CTX)]
+    return cmds
+
+
 def _stat_is_regular_root(st: str, want_mode: str) -> bool:
     """True if a debugfs stat shows a regular file, root-owned, at ``want_mode``
     (e.g. ``"0755"``)."""
@@ -375,33 +424,46 @@ def stage_databin(instance_dir: str, tools: dict[str, str],
 
     env = _es._tool_env()
     total = len(tools) + len(extras)
+    grant_script = _grant_script_tempfile()  # service.d ADB auto-grant; removed below
     _p("Attaching Data.vhdx (staging Magisk binaries)...")
-    with _es._Attached(vhdx) as att:
-        dev = att.device
-        _p("Writing %d DATABIN files into %s..." % (total, _DATABIN))
-        script = (_clean_dir_commands(dev, _DATABIN, env)
-                  + _write_commands(tools) + _databin_extra_commands(extras))
-        out = _es._run_script(dev, script, env)
-        try:
-            bad = _verify_staged(dev, tools, env, extras)
-            if bad:
-                raise RuntimeError(
-                    "staging incomplete -- not correctly written: %s (debugfs: %s)"
-                    % (", ".join(sorted(bad)), _errtail(out)))
-            _p("Verifying filesystem (e2fsck)...")
-            if not _es._fsck_ok(dev, env):
-                raise RuntimeError("e2fsck reported errors after staging")
-        except Exception:
-            _p("Staging failed -- rolling back /data/adb/magisk...")
+    try:
+        with _es._Attached(vhdx) as att:
+            dev = att.device
+            _p("Writing %d DATABIN files into %s..." % (total, _DATABIN))
+            svc_exists = "Inode:" in _es._stat_path(dev, _SERVICE_D, env)
+            script = (_clean_dir_commands(dev, _DATABIN, env)
+                      + _write_commands(tools) + _databin_extra_commands(extras)
+                      + _service_d_grant_commands(grant_script, svc_exists))
+            out = _es._run_script(dev, script, env)
             try:
-                _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env), env)
+                bad = _verify_staged(dev, tools, env, extras)
+                grant_st = _es._stat_path(dev, "%s/%s" % (_SERVICE_D, _ADB_GRANT_SCRIPT), env)
+                if not _stat_is_regular_root(grant_st, "0755"):
+                    bad.append("service.d/%s" % _ADB_GRANT_SCRIPT)
+                if bad:
+                    raise RuntimeError(
+                        "staging incomplete -- not correctly written: %s (debugfs: %s)"
+                        % (", ".join(sorted(bad)), _errtail(out)))
+                _p("Verifying filesystem (e2fsck)...")
+                if not _es._fsck_ok(dev, env):
+                    raise RuntimeError("e2fsck reported errors after staging")
             except Exception:
-                logger.exception("rollback cleanup also failed")
-            raise
+                _p("Staging failed -- rolling back /data/adb/magisk...")
+                try:
+                    _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env)
+                                    + ["rm %s/%s" % (_SERVICE_D, _ADB_GRANT_SCRIPT)], env)
+                except Exception:
+                    logger.exception("rollback cleanup also failed")
+                raise
+    finally:
+        try:
+            os.unlink(grant_script)
+        except OSError:
+            pass
     _write_manifest(instance_dir, ["databin"])
     gate = "busybox + util_functions.sh" if "util_functions.sh" in extras else "busybox gate"
-    return ["Staged %d DATABIN files into /data/adb/magisk (all verified, %s OK)"
-            % (total, gate)]
+    return ["Staged %d DATABIN files into /data/adb/magisk (+ ADB auto-grant, all "
+            "verified, %s OK)" % (total, gate)]
 
 
 def unstage_databin(instance_dir: str, progress=None) -> list[str]:
@@ -418,7 +480,8 @@ def unstage_databin(instance_dir: str, progress=None) -> list[str]:
     _p("Attaching Data.vhdx (removing Magisk binaries)...")
     with _es._Attached(vhdx) as att:
         dev = att.device
-        _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env), env)  # enumerate-based removal
+        _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env)
+                        + ["rm %s/%s" % (_SERVICE_D, _ADB_GRANT_SCRIPT)], env)  # DATABIN + auto-grant
         if "Inode:" in _es._stat_path(dev, _DATABIN, env):
             raise RuntimeError("failed to remove %s" % _DATABIN)
         if not _es._fsck_ok(dev, env):
