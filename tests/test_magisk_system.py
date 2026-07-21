@@ -144,6 +144,44 @@ def test_databin_extra_commands_writes_scripts_and_chromeos_subdir():
     assert "sif %s/kernel.keyblock mode 0100644" % cs in cmds  # key -> data
 
 
+def test_service_d_grant_commands_creates_dir_when_absent():
+    cmds = ms._service_d_grant_commands(r"C:\w\00-bsrgui-adbgrant.sh", dir_exists=False)
+    sd = ms._SERVICE_D
+    dst = "%s/%s" % (sd, ms._ADB_GRANT_SCRIPT)
+    # fresh instance: service.d is created 0700 root before the script write
+    assert "mkdir %s" % sd in cmds
+    assert "sif %s mode 040700" % sd in cmds
+    assert cmds.index("mkdir %s" % sd) < cmds.index("cd %s" % sd)
+    # rm-before-write (write won't overwrite), quoted src + bare dest, 0755 root
+    assert cmds.index("rm %s" % ms._ADB_GRANT_SCRIPT) < cmds.index(
+        'write "/cygdrive/c/w/00-bsrgui-adbgrant.sh" %s' % ms._ADB_GRANT_SCRIPT)
+    assert "sif %s mode 0100755" % dst in cmds
+    assert "sif %s uid 0" % dst in cmds and "sif %s gid 0" % dst in cmds
+    assert "ea_set %s security.selinux %s" % (dst, ms._SELINUX_CTX) in cmds
+
+
+def test_service_d_grant_commands_skips_mkdir_when_present():
+    cmds = ms._service_d_grant_commands(r"C:\w\00-bsrgui-adbgrant.sh", dir_exists=True)
+    # booted-once instance already has service.d: don't recreate it
+    assert not any(c.startswith("mkdir ") for c in cmds)
+    assert "cd %s" % ms._SERVICE_D in cmds
+    assert any(c.startswith("write ") and c.endswith(ms._ADB_GRANT_SCRIPT) for c in cmds)
+
+
+def test_grant_script_tempfile_is_lf_and_grants_shell():
+    path = ms._grant_script_tempfile()
+    try:
+        raw = open(path, "rb").read()
+        assert b"\r\n" not in raw, "guest sh needs LF endings, not CRLF"
+        assert raw.startswith(b"#!/system/bin/sh")
+        text = raw.decode("utf-8")
+        # force-allow (policy 2) the shell uid (2000), forever (until 0)
+        assert "REPLACE INTO policies" in text
+        assert "VALUES(2000,2,0,0,0)" in text
+    finally:
+        os.unlink(path)
+
+
 def test_verify_staged_checks_extras_mode_and_owner(monkeypatch):
     stats = {
         "busybox": "Inode: 5 Type: regular Mode:  0755\nUser:  0 Group:  0",

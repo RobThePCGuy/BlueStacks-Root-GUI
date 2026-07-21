@@ -125,11 +125,17 @@ def _resolve_serial(adb_exe: str, port: Optional[int], runner: Runner) -> str:
 
 
 def _ensure_su_policy(adb_exe: str, serial: str, runner: Runner) -> None:
-    """Persist a permanent 'allow' Superuser policy for the shell uid (2000) so
-    magiskd stops prompting -- and, if the prompt isn't tapped fast enough,
-    auto-DENYING -- ``su`` during a flash. The very first ``su`` here may still
-    pop the grant once; after it's recorded, every later flash is automatic
-    (this is the "flip auto-grant before flashing" step, done for you).
+    """Re-affirm the permanent 'allow' Superuser policy for the shell uid (2000)
+    so magiskd never prompts -- and, on a missed prompt, auto-DENIES -- ``su``
+    during a flash.
+
+    The real fix lives offline: the installer plants a Magisk ``service.d``
+    script (magisk_system) that runs as root at every boot and sets this same
+    policy, so a fresh instance grants the shell from first boot with no tap and
+    a missed prompt can never lock it out. This online call is a silent
+    belt-and-suspenders re-affirm for instances that already have su; it can't
+    bootstrap a shell that's currently denied (it would need the very su it's
+    being denied), which is exactly why the grant is planted offline.
 
     Best-effort: any failure is swallowed so it never aborts the flash itself.
     """
@@ -164,9 +170,10 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
     _p("Connecting to the instance...")
     serial = _resolve_serial(adb_exe, port, runner)
 
-    # Pre-authorize shell root so the flash isn't auto-denied. The first flash
-    # of a fresh install may still prompt once (tap Grant); after that it sticks.
-    _p("Authorizing root (tap Grant in the instance if a prompt appears)...")
+    # Re-affirm shell root so the flash isn't auto-denied. On a tool-installed
+    # instance the offline service.d grant already did this at boot, so no prompt
+    # appears; this is a silent belt-and-suspenders confirm.
+    _p("Confirming ADB root access...")
     _ensure_su_policy(adb_exe, serial, runner)
 
     tmp = "/data/local/tmp/" + name
