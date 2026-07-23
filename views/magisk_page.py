@@ -45,7 +45,11 @@ class MagiskPage(QWidget):
         "Play Integrity does not pass on BlueStacks. Google limits emulator "
         "integrity to its own Google Play Games, so apps that gate on it "
         "(banking, some games) stay broken with or without these modules. You "
-        "get root, Zygisk, and Xposed, not integrity."
+        "get root, Zygisk, and Xposed, not integrity.\n\n"
+        "Shared system image: all instances of the same Android version share one "
+        "master Root.vhd. Installing or uninstalling Magisk affects every instance "
+        "on that version, not just the selected one. Uninstalling from one clone "
+        "removes root from its siblings too."
     )
 
     def __init__(self, parent=None):

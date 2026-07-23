@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 import logging
 from typing import Any
 
@@ -25,10 +24,6 @@ import su_patch_offline
 import ext4_symlink
 import adb_handler
 import magisk_system
-import magisk_payload
-import rezygisk_payload
-import lsposed_payload
-import telemetry_block
 import admin
 
 from views.nav_rail import (
@@ -38,8 +33,10 @@ from views.nav_rail import (
 from views.dashboard_page import DashboardPage
 from views.instances_page import InstancesPage
 from views.magisk_page import MagiskPage
+from views.magisk_controller import MagiskController
 from views.modules_page import ModulesPage
 from views.privacy_page import PrivacyPage
+from views.privacy_controller import PrivacyController
 from views.progress import OperationProgressBar, step_percent
 from views import theme
 from views import engine_rules
@@ -170,6 +167,10 @@ class MainWindow(QWidget):
             NAV_MODULES: self.modules_page,
             NAV_PRIVACY: self.privacy_page,
         }
+        # Own the Magisk/Privacy tabs' handler logic; MainWindow keeps the
+        # signal wiring and shared infra (confirm dialog, async runner) below.
+        self.magisk_controller = MagiskController(self)
+        self.privacy_controller = PrivacyController(self)
         body.addWidget(self.pages, 1)
 
         root_layout.addLayout(body, 1)
@@ -187,14 +188,14 @@ class MainWindow(QWidget):
             lambda: self.nav_rail.select(NAV_DASHBOARD))
         self.modules_page.browse_zip_requested.connect(self._handle_browse_zip)
         self.modules_page.push_requested.connect(self._handle_push_module)
-        self.magisk_page.install_requested.connect(self._handle_install_magisk)
-        self.magisk_page.uninstall_requested.connect(self._handle_uninstall_magisk)
-        self.magisk_page.install_manager_requested.connect(self._handle_install_manager)
-        self.magisk_page.uninstall_manager_requested.connect(self._handle_uninstall_manager)
-        self.magisk_page.install_rezygisk_requested.connect(self._handle_install_rezygisk)
-        self.magisk_page.install_lsposed_requested.connect(self._handle_install_lsposed)
-        self.privacy_page.block_requested.connect(self._handle_block_telemetry)
-        self.privacy_page.unblock_requested.connect(self._handle_unblock_telemetry)
+        self.magisk_page.install_requested.connect(self.magisk_controller.handle_install)
+        self.magisk_page.uninstall_requested.connect(self.magisk_controller.handle_uninstall)
+        self.magisk_page.install_manager_requested.connect(self.magisk_controller.handle_install_manager)
+        self.magisk_page.uninstall_manager_requested.connect(self.magisk_controller.handle_uninstall_manager)
+        self.magisk_page.install_rezygisk_requested.connect(self.magisk_controller.handle_install_rezygisk)
+        self.magisk_page.install_lsposed_requested.connect(self.magisk_controller.handle_install_lsposed)
+        self.privacy_page.block_requested.connect(self.privacy_controller.handle_block)
+        self.privacy_page.unblock_requested.connect(self.privacy_controller.handle_unblock)
 
         self.setMinimumWidth(700)
         self.setMinimumHeight(480)
@@ -204,9 +205,9 @@ class MainWindow(QWidget):
         if key == NAV_MODULES:
             self._refresh_running_instances()
         elif key == NAV_MAGISK:
-            self._refresh_magisk_statuses()
+            self.magisk_controller.refresh_statuses()
         elif key == NAV_PRIVACY:
-            self._refresh_privacy_statuses()
+            self.privacy_controller.refresh_statuses()
 
     def _handle_toggle_theme(self) -> None:
         current = theme.load_saved_theme()
@@ -625,226 +626,6 @@ class MainWindow(QWidget):
 
         self._run_async(job, "Installing %s..." % os.path.basename(zip_path))
 
-    def _refresh_magisk_statuses(self) -> None:
-        """Fill the Magisk tab with each instance's current install state."""
-        statuses = {uid: magisk_system.magisk_status(data["data_path"])
-                    for uid, data in self.instance_data.items()}
-        self.magisk_page.set_instances(statuses)
-
-    def _refresh_privacy_statuses(self) -> None:
-        """Fill the Privacy tab with each instance's telemetry-block state."""
-        statuses = {uid: telemetry_block.status(data["data_path"])
-                    for uid, data in self.instance_data.items()}
-        self.privacy_page.set_instances(statuses)
-
-    def _handle_block_telemetry(self) -> None:
-        uid = self.privacy_page.selected_instance_id()
-        if not uid or uid not in self.instance_data:
-            QMessageBox.information(self, "No instance selected",
-                                    "Select an instance on the Privacy tab first.")
-            return
-        if not self._confirm(
-                "Block ads & telemetry",
-                "Block ad/telemetry domains in %s?" % uid,
-                "<p>Null-routes ad, tracker, and analytics domains in the guest "
-                "hosts file while the instance is shut down (all BlueStacks "
-                "processes close first). Emulator-only, and reversible.</p>"):
-            return
-        data_path = self.instance_data[uid]["data_path"]
-
-        def job(progress):
-            progress("Closing BlueStacks...", 0)
-            instance_handler.terminate_bluestacks()
-            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = telemetry_block.apply(data_path, progress=lambda m: progress(m, -1))
-            return results[-1] if results else "Telemetry blocked."
-
-        self._run_async(job, "Blocking ads/telemetry in %s..." % uid)
-
-    def _handle_unblock_telemetry(self) -> None:
-        uid = self.privacy_page.selected_instance_id()
-        if not uid or uid not in self.instance_data:
-            QMessageBox.information(self, "No instance selected",
-                                    "Select an instance on the Privacy tab first.")
-            return
-        if not self._confirm(
-                "Remove telemetry block",
-                "Restore the original guest hosts file for %s?" % uid,
-                "<p>Removes the ad/telemetry block, while the instance is shut "
-                "down (all BlueStacks processes close first).</p>"):
-            return
-        data_path = self.instance_data[uid]["data_path"]
-
-        def job(progress):
-            progress("Closing BlueStacks...", 0)
-            instance_handler.terminate_bluestacks()
-            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = telemetry_block.remove(data_path, progress=lambda m: progress(m, -1))
-            return results[-1] if results else "Block removed."
-
-        self._run_async(job, "Removing the block from %s..." % uid)
-
-    def _selected_magisk_instance(self):
-        uid = self.magisk_page.selected_instance_id()
-        if not uid or uid not in self.instance_data:
-            QMessageBox.information(self, "No instance selected",
-                                    "Select an instance on the Magisk tab first.")
-            return None, None
-        return uid, self.instance_data[uid]
-
-    def _handle_install_magisk(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
-        # The modified guest /system only boots on a patched engine.
-        if instance.get("patch_mode") and self._engine_state() != "patched":
-            QMessageBox.warning(
-                self, "Patch the engine first",
-                "Installing Magisk modifies the guest system image, which only "
-                "boots on a patched engine. Patch it from the Dashboard, then "
-                "try again.")
-            return
-        app_root_note = (
-            "<p><b>Heads up:</b> this instance has app-root (Toggle Root) on. "
-            "Magisk brings its own <code>su</code>. Turn app-root off on the "
-            "Instances tab to avoid two competing su providers.</p>"
-            if instance.get("root_enabled") else "")
-        if not self._confirm(
-                "Install Magisk",
-                "Install full offline Magisk system-root into %s?" % uid,
-                "<p>Writes Magisk into the instance's system and data images while "
-                "it's shut down, no R/W toggle, no temp-root. All BlueStacks "
-                "processes close first.</p>"
-                "<p>When it finishes: start the instance, enable ADB, then click "
-                "<b>Install manager app</b>.</p>" + app_root_note):
-            return
-        data_path = instance["data_path"]
-
-        def job(progress):
-            progress("Closing BlueStacks...", 0)
-            instance_handler.terminate_bluestacks()
-            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = magisk_system.install(data_path, progress=lambda m: progress(m, -1))
-            return results[-1] if results else "Magisk installed."
-
-        self._run_async(job, "Installing Magisk into %s..." % uid)
-
-    def _handle_uninstall_magisk(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
-        if not self._confirm(
-                "Uninstall Magisk",
-                "Remove Magisk from %s?" % uid,
-                "<p>Removes the Magisk system footprint (restoring the stock boot "
-                "sequence) and <code>/data/adb/magisk</code>, while the instance "
-                "is shut down. All BlueStacks processes close first.</p>"):
-            return
-        data_path = instance["data_path"]
-
-        def job(progress):
-            progress("Closing BlueStacks...", 0)
-            instance_handler.terminate_bluestacks()
-            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = magisk_system.uninstall(data_path, progress=lambda m: progress(m, -1))
-            return results[-1] if results else "Magisk removed."
-
-        self._run_async(job, "Removing Magisk from %s..." % uid)
-
-    def _adb_and_port(self, instance):
-        """(adb_exe, port) for an over-ADB action on a running instance, or
-        (None, None) after warning if ADB isn't present."""
-        install_dirs = [i.get("install_path") for i in self.installations]
-        adb_exe = adb_handler.find_adb(install_dirs)
-        if not adb_exe:
-            QMessageBox.warning(
-                self, "ADB not found",
-                "Couldn't find HD-Adb.exe in the BlueStacks install folder, so "
-                "this can't run over ADB.")
-            return None, None
-        port = adb_handler.instance_adb_port(instance["config_path"], instance["original_name"])
-        return adb_exe, port
-
-    def _magisk_cache_dir(self):
-        return os.path.join(tempfile.gettempdir(), "BlueStacksRootGUI-magisk", "cache")
-
-    def _handle_install_manager(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
-        adb_exe, port = self._adb_and_port(instance)
-        if not adb_exe:
-            return
-        data_path = instance["data_path"]
-
-        def job(progress):
-            def relay(msg):
-                progress(msg, -1)
-            progress("Fetching the Magisk manager...", -1)
-            apk = magisk_payload.fetch_apk(self._magisk_cache_dir(), progress=relay)
-            msg = adb_handler.install_manager(adb_exe, port, apk, progress=relay)
-            magisk_system.add_component(data_path, "manager")  # reflect it in the status
-            self.show_notice.emit("Manager installed", msg)
-            return msg
-
-        self._run_async(job, "Installing the Magisk manager into %s..." % uid)
-
-    def _handle_uninstall_manager(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
-        adb_exe, port = self._adb_and_port(instance)
-        if not adb_exe:
-            return
-        data_path = instance["data_path"]
-
-        def job(progress):
-            msg = adb_handler.uninstall_manager(adb_exe, port, progress=lambda m: progress(m, -1))
-            magisk_system.remove_component(data_path, "manager")
-            self.show_notice.emit("Manager removed", msg)
-            return msg
-
-        self._run_async(job, "Removing the Magisk manager from %s..." % uid)
-
-    def _handle_install_rezygisk(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
-        adb_exe, port = self._adb_and_port(instance)
-        if not adb_exe:
-            return
-
-        def job(progress):
-            def relay(msg):
-                progress(msg, -1)
-            progress("Fetching ReZygisk...", -1)
-            zip_path = rezygisk_payload.fetch_module(self._magisk_cache_dir(), progress=relay)
-            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
-            self.show_notice.emit("ReZygisk installed", msg)
-            return "%s Reboot the instance to activate Zygisk." % msg
-
-        self._run_async(job, "Installing ReZygisk into %s..." % uid)
-
-    def _handle_install_lsposed(self) -> None:
-        uid, instance = self._selected_magisk_instance()
-        if instance is None:
-            return
-        adb_exe, port = self._adb_and_port(instance)
-        if not adb_exe:
-            return
-
-        def job(progress):
-            def relay(msg):
-                progress(msg, -1)
-            progress("Fetching LSPosed...", -1)
-            zip_path = lsposed_payload.fetch_module(self._magisk_cache_dir(), progress=relay)
-            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
-            self.show_notice.emit("LSPosed installed", msg)
-            return ("%s Reboot the instance to activate it (needs ReZygisk); then "
-                    "manage modules from the LSPosed app." % msg)
-
-        self._run_async(job, "Installing LSPosed into %s..." % uid)
-
     def _action_buttons(self):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
                 self.instances_page.launch_button, self.instances_page.restart_button,
@@ -928,9 +709,9 @@ class MainWindow(QWidget):
         if self.nav_rail.current() == NAV_MODULES:
             self._refresh_running_instances()
         elif self.nav_rail.current() == NAV_MAGISK:
-            self._refresh_magisk_statuses()
+            self.magisk_controller.refresh_statuses()
         elif self.nav_rail.current() == NAV_PRIVACY:
-            self._refresh_privacy_statuses()
+            self.privacy_controller.refresh_statuses()
         self.status_refresh_timer.start(constants.REFRESH_INTERVAL_MS)
 
     def _cleanup_async(self):

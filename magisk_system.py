@@ -679,6 +679,24 @@ def _default_work_dir() -> str:
     return os.path.join(tempfile.gettempdir(), "BlueStacksRootGUI-magisk")
 
 
+class RollbackFailedError(RuntimeError):
+    """DATABIN staging failed AND the automatic /system rollback also failed.
+
+    Distinct from a plain staging failure: the instance may now be left with a
+    half-written /system footprint and no DATABIN, which per this module's own
+    docstring risks a Magisk init that can't boot. Carries both underlying
+    errors so a caller (the GUI) can show something more alarming than a
+    generic "install failed" message.
+    """
+
+    def __init__(self, stage_error: BaseException, rollback_error: BaseException):
+        self.stage_error = stage_error
+        self.rollback_error = rollback_error
+        super().__init__(
+            "DATABIN staging failed (%s) and the automatic /system rollback "
+            "also failed (%s)" % (stage_error, rollback_error))
+
+
 def install(instance_dir: str, work_dir: str | None = None, progress=None) -> list[str]:
     """Full offline Magisk-to-system install for one instance.
 
@@ -711,12 +729,13 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
     results += install_to_system(instance_dir, tools, stub, progress=progress)
     try:
         results += stage_databin(instance_dir, tools, extras=extras, progress=progress)
-    except Exception:
+    except Exception as stage_exc:
         _p("DATABIN staging failed -- rolling back the /system footprint...")
         try:
             uninstall_from_system(instance_dir, progress=progress)
-        except Exception:
+        except Exception as rollback_exc:
             logger.exception("cross-step rollback of the /system footprint also failed")
+            raise RollbackFailedError(stage_exc, rollback_exc) from stage_exc
         raise
     _write_manifest(instance_dir, ["system", "databin"])
     results.append("Magisk %s installed offline (system + complete DATABIN). Boot "

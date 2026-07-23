@@ -49,7 +49,7 @@ def test_install_blocked_when_patch_mode_engine_unpatched(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_magisk()
+    window.magisk_controller.handle_install()
 
     warned.assert_called_once()
     ran.assert_not_called()
@@ -65,7 +65,7 @@ def test_install_proceeds_when_engine_patched(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_magisk()
+    window.magisk_controller.handle_install()
 
     ran.assert_called_once()
 
@@ -80,7 +80,7 @@ def test_install_aborts_when_user_declines_confirm(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_magisk()
+    window.magisk_controller.handle_install()
 
     ran.assert_not_called()
 
@@ -95,7 +95,7 @@ def test_uninstall_proceeds_on_confirm(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_uninstall_magisk()
+    window.magisk_controller.handle_uninstall()
 
     ran.assert_called_once()
 
@@ -112,7 +112,7 @@ def test_install_manager_warns_when_adb_missing(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_manager()
+    window.magisk_controller.handle_install_manager()
 
     warned.assert_called_once()
     ran.assert_not_called()
@@ -129,7 +129,7 @@ def test_install_manager_runs_when_adb_present(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_manager()
+    window.magisk_controller.handle_install_manager()
 
     ran.assert_called_once()
 
@@ -148,7 +148,7 @@ def test_uninstall_manager_runs_when_adb_present(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_uninstall_manager()
+    window.magisk_controller.handle_uninstall_manager()
 
     ran.assert_called_once()
 
@@ -163,7 +163,7 @@ def test_install_rezygisk_runs_when_adb_present(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_rezygisk()
+    window.magisk_controller.handle_install_rezygisk()
 
     ran.assert_called_once()
 
@@ -179,7 +179,7 @@ def test_install_rezygisk_warns_when_adb_missing(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_rezygisk()
+    window.magisk_controller.handle_install_rezygisk()
 
     warned.assert_called_once()
     ran.assert_not_called()
@@ -195,7 +195,7 @@ def test_install_lsposed_runs_when_adb_present(qtbot, monkeypatch):
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
 
-    window._handle_install_lsposed()
+    window.magisk_controller.handle_install_lsposed()
 
     ran.assert_called_once()
 
