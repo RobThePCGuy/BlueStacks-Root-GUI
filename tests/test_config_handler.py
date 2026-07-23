@@ -1,4 +1,9 @@
+import os
+
+import pytest
+
 import config_handler
+import win_retry
 
 
 def _write_conf(tmp_path, text):
@@ -35,3 +40,88 @@ def test_get_complete_root_statuses_unreadable_file_includes_display_names_key(t
 
     result = config_handler.get_complete_root_statuses(conf)
     assert result == {"global_status": False, "instance_statuses": {}, "display_names": {}}
+
+
+def test_modify_config_file_updates_existing_setting(tmp_path):
+    conf = _write_conf(tmp_path, 'bst.instance.Pie64.enable_root_access="0"\n')
+
+    changed = config_handler.modify_config_file(
+        conf, "bst.instance.Pie64.enable_root_access", "1")
+
+    assert changed is True
+    assert open(conf, encoding="utf-8").read() == 'bst.instance.Pie64.enable_root_access="1"\n'
+
+
+def test_modify_config_file_appends_missing_setting(tmp_path):
+    conf = _write_conf(tmp_path, 'bst.feature.rooting="0"\n')
+
+    changed = config_handler.modify_config_file(
+        conf, "bst.instance.New64.enable_root_access", "1")
+
+    assert changed is True
+    content = open(conf, encoding="utf-8").read()
+    assert 'bst.feature.rooting="0"' in content
+    assert 'bst.instance.New64.enable_root_access="1"' in content
+
+
+def test_modify_config_file_no_temp_file_left_behind_on_success(tmp_path):
+    conf = _write_conf(tmp_path, 'bst.feature.rooting="0"\n')
+
+    config_handler.modify_config_file(conf, "bst.feature.rooting", "1")
+
+    assert not os.path.isfile(conf + ".tmp")
+
+
+def test_modify_config_file_retries_past_a_transient_sharing_violation(tmp_path, monkeypatch):
+    """A real Windows sharing violation on os.replace() (AV/indexer/BlueStacks
+    briefly holding the destination open) must self-heal via win_retry rather
+    than fail the whole write on the first collision."""
+    conf = _write_conf(tmp_path, 'bst.feature.rooting="0"\n')
+    monkeypatch.setattr(win_retry.time, "sleep", lambda s: None)
+
+    real_replace = os.replace
+    calls = []
+
+    def flaky_replace(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError("sharing violation")
+        return real_replace(src, dst)
+    monkeypatch.setattr(config_handler.os, "replace", flaky_replace)
+
+    changed = config_handler.modify_config_file(conf, "bst.feature.rooting", "1")
+
+    assert changed is True
+    assert len(calls) == 3  # two failures + the successful attempt
+    assert open(conf, encoding="utf-8").read() == 'bst.feature.rooting="1"\n'
+    assert not os.path.isfile(conf + ".tmp")
+
+
+def test_modify_config_file_cleans_up_temp_and_preserves_original_on_persistent_failure(
+        tmp_path, monkeypatch):
+    """If the sharing violation never clears, the original file must be left
+    completely intact (never truncated) and no .tmp sibling left behind."""
+    conf = _write_conf(tmp_path, 'bst.feature.rooting="0"\n')
+    monkeypatch.setattr(win_retry.time, "sleep", lambda s: None)
+
+    def always_locked(src, dst):
+        raise PermissionError("still locked")
+    monkeypatch.setattr(config_handler.os, "replace", always_locked)
+
+    with pytest.raises(OSError):
+        config_handler.modify_config_file(conf, "bst.feature.rooting", "1")
+
+    assert open(conf, encoding="utf-8").read() == 'bst.feature.rooting="0"\n'
+    assert not os.path.isfile(conf + ".tmp")
+
+
+def test_modify_config_file_unchanged_setting_skips_write_entirely(tmp_path, monkeypatch):
+    conf = _write_conf(tmp_path, 'bst.feature.rooting="1"\n')
+
+    def _boom(*a, **k):
+        raise AssertionError("wrote despite the value already matching")
+    monkeypatch.setattr(config_handler.win_retry, "retry_on_sharing_violation", _boom)
+
+    changed = config_handler.modify_config_file(conf, "bst.feature.rooting", "1")
+
+    assert changed is False

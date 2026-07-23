@@ -148,6 +148,15 @@ def _ensure_su_policy(adb_exe: str, serial: str, runner: Runner) -> None:
         logger.debug("ensure_su_policy failed (non-fatal)", exc_info=True)
 
 
+def _shell_single_quote(s: str) -> str:
+    """Escape ``s`` for embedding inside a single-quoted POSIX shell argument
+    (the standard technique: close the quote, emit an escaped literal quote,
+    reopen the quote). ``su -c`` hands its argument to a shell on the guest, so
+    a filename containing a literal ``'`` would otherwise break out of the
+    ``'%s'`` it's substituted into below and inject arbitrary shell commands."""
+    return s.replace("'", "'\\''")
+
+
 def install_module(adb_exe: str, port: Optional[int], local_zip: str,
                    progress: Optional[Callable[[str], None]] = None,
                    runner: Runner = _run) -> str:
@@ -185,7 +194,7 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
 
     _p("Installing %s via Magisk..." % name)
     cp = runner([adb_exe, "-s", serial, "shell", "su", "-c",
-                 "magisk --install-module '%s'" % tmp])
+                 "magisk --install-module '%s'" % _shell_single_quote(tmp)])
     out = ((cp.stdout or "") + (cp.stderr or "")).strip()
     runner([adb_exe, "-s", serial, "shell", "rm", "-f", tmp])  # tidy up
 

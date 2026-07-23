@@ -163,10 +163,18 @@ def _detach(vhd_path: str) -> bool:
     return False
 
 
+def _ps_single_quote(s: str) -> str:
+    """Escape ``s`` for embedding inside a single-quoted PowerShell string
+    literal (PowerShell's escape for a literal ``'`` is doubling it: ``''``).
+    A Windows profile path with an apostrophe (e.g. ``C:\\Users\\O'Brien\\...``)
+    would otherwise break out of the ``'%s'`` it's substituted into below."""
+    return s.replace("'", "''")
+
+
 def _disk_number(vhd_path: str) -> int | None:
     """OS disk number of the attached VHD (== PhysicalDriveN index)."""
     r = _run(["powershell", "-NoProfile", "-Command",
-              "(Get-Disk | Where-Object { $_.Location -eq '%s' }).Number" % vhd_path])
+              "(Get-Disk | Where-Object { $_.Location -eq '%s' }).Number" % _ps_single_quote(vhd_path)])
     out = (r.stdout or "").strip()
     return int(out) if out.isdigit() else None
 
@@ -218,10 +226,20 @@ class _Attached:
             msg = ("failed to detach %s -- it may still be mounted as a raw disk; "
                    "detach it via Disk Management before relaunching the instance"
                    % self.vhd)
-            logger.error(msg)
-            # Don't mask an in-flight exception; only raise if we exited cleanly.
+            # A slow/failed detach must not turn an already-successful patch
+            # into a reported error: the caller's work (write + verify + fsck)
+            # is done by this point, so a sluggish `diskpart detach` here is a
+            # cleanup nuisance, not a failure of the operation.
             if exc[0] is None:
-                raise RuntimeError(msg)
+                logger.warning(msg)
+            else:
+                # The body is already unwinding from a real error. Raising a
+                # new exception here would REPLACE it as what propagates to
+                # the caller (Python's implicit exception chaining makes the
+                # original merely `__context__`, invisible to a plain
+                # `except Exception as e: str(e)`), hiding the actual failure
+                # behind this unrelated detach message. Log only.
+                logger.error(msg)
 
 def add_su_symlink(instance_dir: str, progress=None) -> list[str]:
     """Create ``/system/xbin/su -> bstk/su`` in a shut-down instance's Root.vhd.

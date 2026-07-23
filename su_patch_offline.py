@@ -450,6 +450,18 @@ def _sidecar(vhd_path: str) -> str:
     return vhd_path + ".suroot.json"
 
 
+def _write_sidecar(sc: str, merged: dict[int, str]) -> None:
+    """Persist ``merged`` (flat offset -> original bytes) to the sidecar now.
+
+    Called after every entry in :func:`enable`'s patch loop, not just once at
+    the end, so a later entry's write failure can't orphan the recovery
+    record for entries already patched earlier in the same run.
+    """
+    if merged:
+        json.dump({"patches": [{"offset": o, "orig": h} for o, h in merged.items()]},
+                  open(sc, "w"), indent=2)
+
+
 def enable(vhd_path: str, progress=None) -> list[str]:
     """Patch every gated su to grant app root; back up originals to the sidecar.
 
@@ -493,22 +505,22 @@ def enable(vhd_path: str, progress=None) -> list[str]:
             if patched or cur == su_patch.PATCH:
                 merged.setdefault(off, orig_hex)         # track the already-rooted copy
                 results.append("su@0x%X already rooted" % off)
-                continue
-            _p("Patching su %d/%d (offset 0x%X)..." % (i, n, off))
-            merged.setdefault(off, cur.hex(" "))         # remember the original bytes
-            vhd.write(off, su_patch.PATCH)
-            ok = vhd.read(off, 3) == su_patch.PATCH
-            line = "su@0x%X %s (%s -> %s)" % (off, "rooted" if ok else "write-verify FAILED",
-                                              cur.hex(" "), su_patch.PATCH.hex(" "))
-            logger.info(line)
-            results.append(line)
+            else:
+                _p("Patching su %d/%d (offset 0x%X)..." % (i, n, off))
+                merged.setdefault(off, cur.hex(" "))         # remember the original bytes
+                vhd.write(off, su_patch.PATCH)
+                ok = vhd.read(off, 3) == su_patch.PATCH
+                line = "su@0x%X %s (%s -> %s)" % (off, "rooted" if ok else "write-verify FAILED",
+                                                  cur.hex(" "), su_patch.PATCH.hex(" "))
+                logger.info(line)
+                results.append(line)
+            # Persist after every entry, not just once at the end: if a later
+            # entry's vhd.write() raises, the sidecar must already hold every
+            # binary patched so far, or disable() can never restore them.
+            _write_sidecar(sc, merged)
     finally:
         vhd.close()
-    if merged:
-        _p("Writing backup sidecar...")
-        json.dump({"patches": [{"offset": o, "orig": h} for o, h in merged.items()]},
-                  open(sc, "w"), indent=2)
-    elif not results:
+    if not merged and not results:
         results.append("no gated su found -- boot the instance once so Android "
                        "populates /system/xbin/su in Data.vhdx, then shut it "
                        "down and retry")

@@ -9,6 +9,7 @@ from typing import Any
 
 import constants
 import root_persistence
+import win_retry
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,26 @@ def modify_config_file(config_path: str, setting: str, new_value: str) -> bool:
             # attribute for the write and restore it afterwards, so legitimate
             # edits keep working without losing the lock.
             with root_persistence.unlocked(config_path):
-                with open(config_path, "w", encoding="utf-8") as file:
-                    file.writelines(updated_lines)
+                # bluestacks.conf is BlueStacks' one shared, global config --
+                # every instance's settings live in this single file. Write to
+                # a temp file first and os.replace() it into place, so the
+                # real path only ever resolves to the complete old file or the
+                # complete new one -- never a truncated one, even if this
+                # process dies mid-write. os.replace() on Windows can still
+                # raise PermissionError if something else (AV, the Search
+                # indexer, BlueStacks itself) briefly holds the destination
+                # open, so that specific case is retried rather than failed
+                # outright.
+                tmp_path = config_path + ".tmp"
+                try:
+                    with open(tmp_path, "w", encoding="utf-8") as file:
+                        file.writelines(updated_lines)
+                    win_retry.retry_on_sharing_violation(
+                        lambda: os.replace(tmp_path, config_path),
+                        label="bluestacks.conf write")
+                finally:
+                    if os.path.isfile(tmp_path):
+                        os.unlink(tmp_path)
             logger.debug(f"Successfully wrote changes to {config_path}")
         except Exception as e:
             logger.exception(f"Error writing updated configuration file {config_path}")
