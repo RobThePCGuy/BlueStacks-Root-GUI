@@ -30,7 +30,7 @@ _ADB_PORT_KEY = ".status.adb_port"
 # normal user app installed via `adb install` after first boot -- it can't be
 # placed offline (see magisk_system.install_to_system). Used to uninstall for a
 # clean reinstall.
-MANAGER_PACKAGE = "io.github.huskydg.magisk"
+MANAGER_PACKAGE = "io.github.robthepcguy.kyubi"
 
 # Hide the console window adb would otherwise flash on Windows.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -233,6 +233,13 @@ def install_manager(adb_exe: str, port: Optional[int], apk_path: str,
     cp = runner([adb_exe, "-s", serial, "install", "-r", apk_path])
     out = ((cp.stdout or "") + (cp.stderr or "")).strip()
     if cp.returncode == 0 and "Success" in out:
+        # Flush the install to the vhdx. BlueStacks caches /data host-side, so a
+        # hard-kill restart (the app's kill-and-resume) drops an unflushed
+        # pm-install -- the manager then "vanishes" after the reboot. A sync makes
+        # it durable now. (Magisk's --install-module already syncs, which is why
+        # modules survive the restart and the manager did not.) Verified live:
+        # without this the manager is gone after restart; with it, it persists.
+        runner([adb_exe, "-s", serial, "shell", "sync"])
         return "Installed the Magisk manager. Open it from the app drawer."
 
     low = out.lower()

@@ -60,11 +60,13 @@ _SELINUX_CTX = "u:object_r:adb_data_file:s0"
 _MANIFEST_NAME = ".magisk_system.json"  # host sidecar next to Data.vhdx
 
 # Tools that must be executable in DATABIN. busybox is the daemon's hard gate.
-_EXEC_TOOLS = ("busybox", "magisk32", "magisk64", "magiskinit", "magiskpolicy", "magiskboot")
+# Kyubi ships no magiskboot (system-mode only).
+_EXEC_TOOLS = ("busybox", "magisk32", "magisk64", "magiskinit", "magiskpolicy")
 
 # DATABIN "extras" (from the APK assets/, via magisk_payload.extract_databin_extras)
 # that are data, not executables -- everything else in the DATABIN is 0755.
-_DATABIN_DATA_FILES = ("stub.apk", "kernel.keyblock", "kernel_data_key.vbprivk")
+# Kyubi ships no chromeos signing keys, so stub.apk is the only data file.
+_DATABIN_DATA_FILES = ("stub.apk",)
 
 # service.d auto-grant. Magisk runs /data/adb/service.d/*.sh as root at
 # late_start (every boot). We plant a tiny script that force-allows the ADB

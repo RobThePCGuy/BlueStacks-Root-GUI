@@ -353,6 +353,12 @@ class MainWindow(QWidget):
                     effective_root_status = su_patch_offline.instance_root_state(instance_dir_path)
                 else:
                     effective_root_status = individual_root_on
+                # A Magisk system-mode install roots via /system -- it never sets
+                # the bluestacks.conf root flag or the su-patch marker, so without
+                # this the dashboard reads "0 rooted" for a Magisk-rooted instance.
+                if not effective_root_status and \
+                        magisk_system.magisk_status(instance_dir_path) is not None:
+                    effective_root_status = True
 
                 all_found_instances[unique_id] = {
                     "original_name": name,

@@ -114,34 +114,26 @@ def test_clean_dir_commands_recurses_subdir_before_parent_rmdir(monkeypatch):
     ]
 
 
-def test_databin_extra_commands_writes_scripts_and_chromeos_subdir():
+def test_databin_extra_commands_writes_scripts_and_stub():
+    # Kyubi extras: the module-install gate script + the manager stub (no chromeos).
     extras = {
         "util_functions.sh": r"C:\d\util_functions.sh",
         "stub.apk": r"C:\d\stub.apk",
-        "chromeos/futility": r"C:\d\chromeos\futility",
-        "chromeos/kernel.keyblock": r"C:\d\chromeos\kernel.keyblock",
     }
     cmds = ms._databin_extra_commands(extras)
     db = ms._DATABIN
-    cs = "%s/chromeos" % db
 
     # top-level files: cd into DATABIN, then quoted-source bare-name writes
     assert "cd %s" % db in cmds
     assert 'write "/cygdrive/c/d/util_functions.sh" util_functions.sh' in cmds
-    for i, c in enumerate(cmds):
+    for c in cmds:
         if c.startswith("write "):
             assert c.count('"') == 2 and "/" not in c.split()[-1]  # quoted src, bare dest
     # scripts are exec (0755), the stub is data (0644)
     assert "sif %s/util_functions.sh mode 0100755" % db in cmds
     assert "sif %s/stub.apk mode 0100644" % db in cmds
-    # chromeos subdir made 0755 root, cd'd into before its writes
-    assert "mkdir %s" % cs in cmds
-    assert "sif %s mode 040755" % cs in cmds
-    cd_cs = cmds.index("cd %s" % cs)
-    wf = cmds.index('write "/cygdrive/c/d/chromeos/futility" futility')
-    assert wf > cd_cs
-    assert "sif %s/futility mode 0100755" % cs in cmds        # binary -> exec
-    assert "sif %s/kernel.keyblock mode 0100644" % cs in cmds  # key -> data
+    # Kyubi ships no chromeos subdir
+    assert not any("chromeos" in c for c in cmds)
 
 
 def test_service_d_grant_commands_creates_dir_when_absent():

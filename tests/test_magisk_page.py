@@ -48,7 +48,7 @@ def test_not_installed_shows_only_install(qtbot):
     for b in (page.uninstall_button, page.manager_button,
               page.remove_manager_button, page.rezygisk_button, page.lsposed_button):
         assert b.isVisibleTo(page) is False
-    assert "not installed" in page.status_label.text().lower()
+    assert "not rooted" in page.status_label.text().lower()
 
 
 def test_installed_without_manager_shows_uninstall_and_install_manager(qtbot):
@@ -70,7 +70,9 @@ def test_installed_with_manager_unlocks_remove_manager_and_rezygisk(qtbot):
     assert page.remove_manager_button.isVisibleTo(page) is True
     assert page.rezygisk_button.isVisibleTo(page) is True
     assert page.lsposed_button.isVisibleTo(page) is True
-    assert "manager" in page.status_label.text()
+    # Status line stays clean ("rooted"); the component list moved to the tooltip.
+    assert "rooted" in page.status_label.text().lower()
+    assert "manager" in page.status_label.toolTip()
 
 
 def test_busy_forces_visible_action_buttons_disabled(qtbot):

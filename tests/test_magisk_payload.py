@@ -13,6 +13,14 @@ import pytest
 import magisk_payload as mp
 
 
+@pytest.fixture(autouse=True)
+def _clear_kyubi_env(monkeypatch):
+    """Keep fetch_apk tests hermetic: a KYUBI_PAYLOAD_APK set in the real shell
+    (offline-validation override) would otherwise short-circuit the resolve path."""
+    for var in (mp.LOCAL_PAYLOAD_ENV, mp.LOCAL_SHA_ENV, mp.PIN_TAG_ENV):
+        monkeypatch.delenv(var, raising=False)
+
+
 def _make_synthetic_apk(path):
     """Build a zip shaped like the real APK's lib/<abi>/lib*.so + assets/ layout,
     with each member's bytes tagged so extraction can be checked."""
@@ -54,7 +62,7 @@ def test_extract_pulls_magisk64_from_x64_and_magisk32_from_x86(tmp_path):
     assert (out / "magisk32").read_bytes() == b"ELF:x86/libmagisk32.so"
 
 
-def test_extract_databin_extras_pulls_scripts_and_chromeos_subdir(tmp_path):
+def test_extract_databin_extras_pulls_declared_scripts(tmp_path):
     apk = tmp_path / "synthetic.apk"
     _make_synthetic_apk(apk)
     out = tmp_path / "databin"
@@ -63,13 +71,14 @@ def test_extract_databin_extras_pulls_scripts_and_chromeos_subdir(tmp_path):
 
     # every declared extra came out, keyed by its DATABIN-relative path
     assert set(extras) == set(mp._DATABIN_EXTRAS)
-    # util_functions.sh -- the module-install gate -- must be present
+    # util_functions.sh -- the module-install gate -- must be present, content matches
     assert "util_functions.sh" in extras
-    # chromeos/* keeps its subdir on disk, and content matches the APK member
-    fut = out / "chromeos" / "futility"
-    assert fut.is_file()
-    assert fut.read_bytes() == b"ASSET:assets/chromeos/futility"
-    assert extras["chromeos/futility"] == str(fut)
+    uf = out / "util_functions.sh"
+    assert uf.is_file()
+    assert uf.read_bytes() == b"ASSET:assets/util_functions.sh"
+    assert extras["util_functions.sh"] == str(uf)
+    # Kyubi is system-mode only: no chromeos signing tools ship
+    assert not (out / "chromeos").exists()
 
 
 def test_extract_databin_extras_missing_member_raises_and_cleans_partial(tmp_path):
@@ -90,7 +99,8 @@ def test_extract_databin_extras_missing_member_raises_and_cleans_partial(tmp_pat
 def test_fetch_apk_returns_cached_when_hash_matches(tmp_path, monkeypatch):
     payload = b"pretend-apk-bytes"
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setattr(mp, "PAYLOAD_SHA256", digest)
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: ("v9.9", "http://x/app-release.apk", digest))
     cached = tmp_path / mp.PAYLOAD_NAME
     cached.write_bytes(payload)
 
@@ -100,6 +110,9 @@ def test_fetch_apk_returns_cached_when_hash_matches(tmp_path, monkeypatch):
     monkeypatch.setattr(mp.urllib.request, "urlretrieve", _boom)
 
     assert mp.fetch_apk(str(tmp_path)) == str(cached)
+    # the resolved release is recorded for the install manifest
+    assert mp.PAYLOAD_SHA256 == digest
+    assert "v9.9" in mp.PAYLOAD_VERSION
 
 
 def test_extract_tools_missing_member_raises_and_cleans_partial(tmp_path):
@@ -119,7 +132,9 @@ def test_extract_tools_missing_member_raises_and_cleans_partial(tmp_path):
 
 def test_fetch_apk_redownloads_when_cache_unreadable(tmp_path, monkeypatch):
     good = b"good-apk-bytes"
-    monkeypatch.setattr(mp, "PAYLOAD_SHA256", hashlib.sha256(good).hexdigest())
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: ("v9.9", "http://x/app-release.apk",
+                                 hashlib.sha256(good).hexdigest()))
     cached = tmp_path / mp.PAYLOAD_NAME
     cached.write_bytes(b"placeholder-that-cannot-be-read")
 
@@ -141,7 +156,8 @@ def test_fetch_apk_redownloads_when_cache_unreadable(tmp_path, monkeypatch):
 
 
 def test_fetch_apk_rejects_bad_hash_and_cleans_up(tmp_path, monkeypatch):
-    monkeypatch.setattr(mp, "PAYLOAD_SHA256", "0" * 64)
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: ("v9.9", "http://x/app-release.apk", "0" * 64))
 
     def _fake_download(url, dest):
         with open(dest, "wb") as f:
@@ -154,3 +170,39 @@ def test_fetch_apk_rejects_bad_hash_and_cleans_up(tmp_path, monkeypatch):
     # nothing left behind: no .part, no accepted payload
     assert not (tmp_path / (mp.PAYLOAD_NAME + ".part")).exists()
     assert not (tmp_path / mp.PAYLOAD_NAME).exists()
+
+
+def test_fetch_apk_fails_closed_when_no_digest(tmp_path, monkeypatch):
+    # A release that exposes no sha256 (API digest empty, no .sha256 sibling) must
+    # NOT be installed -- auto-latest never trades away hash verification.
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: ("v9.9", "http://x/app-release.apk", ""))
+
+    def _boom(*a, **k):
+        raise AssertionError("downloaded despite having no digest to verify")
+    monkeypatch.setattr(mp.urllib.request, "urlretrieve", _boom)
+
+    with pytest.raises(RuntimeError, match="refusing to install unverified"):
+        mp.fetch_apk(str(tmp_path))
+
+
+def test_fetch_apk_local_override_verifies_and_skips_network(tmp_path, monkeypatch):
+    payload = b"local-apk-bytes"
+    src = tmp_path / "local.apk"
+    src.write_bytes(payload)
+    monkeypatch.setenv(mp.LOCAL_PAYLOAD_ENV, str(src))
+    monkeypatch.setenv(mp.LOCAL_SHA_ENV, hashlib.sha256(payload).hexdigest())
+
+    # a valid local override must never hit the release API
+    def _no_net():
+        raise AssertionError("resolved the release despite a local override")
+    monkeypatch.setattr(mp, "_resolve_release", _no_net)
+
+    dest = mp.fetch_apk(str(tmp_path / "cache"))
+    assert os.path.isfile(dest)
+    assert open(dest, "rb").read() == payload
+
+    # a wrong declared sha is rejected
+    monkeypatch.setenv(mp.LOCAL_SHA_ENV, "0" * 64)
+    with pytest.raises(RuntimeError, match="mismatch"):
+        mp.fetch_apk(str(tmp_path / "cache2"))

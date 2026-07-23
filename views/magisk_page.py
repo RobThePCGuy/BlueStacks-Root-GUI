@@ -9,10 +9,10 @@ app over ADB.
 """
 from __future__ import annotations
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
-    QPushButton,
+    QPushButton, QToolButton,
 )
 
 
@@ -27,18 +27,25 @@ class MagiskPage(QWidget):
     _EMPTY_TEXT = ("No instances detected yet. They appear here once BlueStacks "
                    "and its instances are found.")
     _PROMPT_TEXT = "Select an instance to see its Magisk status."
-    _INTEGRITY_NOTE = (
-        "How this works: Magisk installs into the instance's system + data "
-        "images while it's shut down (no R/W toggle, no temp-root, no taps). "
-        "Start the instance, install the manager, then add modules ONE AT A "
-        "TIME: install ReZygisk (Zygisk), close and reopen the instance, then "
-        "LSPosed (Xposed), and close/reopen again. Flashing both before a "
-        "restart can leave the instance unbootable. Modules enable themselves "
-        "on flash — no extra step.\n\n"
-        "Note on Play Integrity: it does not pass on BlueStacks. Google limits "
-        "emulator integrity to its own Google Play Games, so apps that gate on "
-        "it (banking, some games) won't work here — with or without these "
-        "modules. These give you root, Zygisk, and Xposed, not integrity."
+
+    # One short line that tracks the current step (set in _update). The buttons
+    # already show only what applies now; the hint says what to do with them.
+    _HINT_INSTALL = ("Install Magisk to root this instance. It runs offline, "
+                     "then restarts the instance.")
+    _HINT_MANAGER = "Next: start the instance, then install the manager."
+    _HINT_MODULES = ("Next: install ReZygisk, then LSPosed, then Restart the "
+                     "instance once from the Instances tab to activate them.")
+
+    # The caveats, tucked behind "Details" so they are there when wanted and out
+    # of the way otherwise.
+    _DETAILS = (
+        "Modules: install ReZygisk before LSPosed, since LSPosed needs Zygisk. "
+        "Flash both, then restart once to activate them. Installing them one at "
+        "a time with a restart between is the safe fallback if a flash acts up.\n\n"
+        "Play Integrity does not pass on BlueStacks. Google limits emulator "
+        "integrity to its own Google Play Games, so apps that gate on it "
+        "(banking, some games) stay broken with or without these modules. You "
+        "get root, Zygisk, and Xposed, not integrity."
     )
 
     def __init__(self, parent=None):
@@ -92,10 +99,26 @@ class MagiskPage(QWidget):
             button_row.addWidget(_b)
         layout.addLayout(button_row)
 
-        note = QLabel(self._INTEGRITY_NOTE)
-        note.setWordWrap(True)
-        note.setObjectName("MagiskIntegrityNote")
-        layout.addWidget(note)
+        self.hint_label = QLabel("")
+        self.hint_label.setWordWrap(True)
+        self.hint_label.setObjectName("MagiskHint")
+        layout.addWidget(self.hint_label)
+
+        self.details_toggle = QToolButton()
+        self.details_toggle.setText("Details")
+        self.details_toggle.setCheckable(True)
+        self.details_toggle.setArrowType(Qt.RightArrow)
+        self.details_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.details_toggle.setAutoRaise(True)
+        self.details_toggle.toggled.connect(self._toggle_details)
+        layout.addWidget(self.details_toggle, alignment=Qt.AlignLeft)
+
+        self.details_label = QLabel(self._DETAILS)
+        self.details_label.setWordWrap(True)
+        self.details_label.setObjectName("MagiskDetails")
+        self.details_label.hide()
+        layout.addWidget(self.details_label)
+
         layout.addStretch(1)
 
         self._radios: dict[str, QRadioButton] = {}
@@ -146,14 +169,35 @@ class MagiskPage(QWidget):
     def selected_status(self) -> dict | None:
         return self._statuses.get(self.selected_instance_id())
 
+    def _toggle_details(self, on: bool) -> None:
+        self.details_toggle.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+        self.details_label.setVisible(on)
+
     def _status_text(self, uid) -> str:
         if uid is None:
             return self._PROMPT_TEXT
         st = self._statuses.get(uid)
         if not st:
-            return "%s: Magisk not installed." % uid
+            return "%s · not rooted" % uid
+        return "%s · rooted ✓" % uid
+
+    def _status_tip(self, uid) -> str:
+        # The version + component list lives in the tooltip: there when wanted,
+        # off the main view otherwise.
+        st = self._statuses.get(uid) if uid else None
+        if not st:
+            return ""
         comps = ", ".join(st.get("components", [])) or "?"
-        return "%s: Magisk %s installed (%s)." % (uid, st.get("version", "?"), comps)
+        return "Magisk %s installed (%s)." % (st.get("version", "?"), comps)
+
+    def _hint_text(self, uid, installed, manager) -> str:
+        if uid is None:
+            return ""
+        if not installed:
+            return self._HINT_INSTALL
+        if not manager:
+            return self._HINT_MANAGER
+        return self._HINT_MODULES
 
     def _update(self, *_args) -> None:
         uid = self.selected_instance_id()
@@ -161,6 +205,8 @@ class MagiskPage(QWidget):
         installed = bool(st)
         manager = installed and "manager" in (st.get("components") or [])
         self.status_label.setText(self._status_text(uid))
+        self.status_label.setToolTip(self._status_tip(uid))
+        self.hint_label.setText(self._hint_text(uid, installed, manager))
         # Show only the actions that apply, in flow order: Install Magisk when
         # it's not there; once installed, Uninstall + Install manager; once the
         # manager is in, Remove manager + Install ReZygisk (which needs the

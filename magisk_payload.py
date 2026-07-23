@@ -1,23 +1,30 @@
-"""Acquire the pinned KitsuneMagisk (Magisk Delta) payload and extract the
-native tools needed for offline system-mode installation.
+"""Acquire the pinned Kyubi payload and extract the native tools needed for
+offline system-mode installation.
 
-The APK is **downloaded on demand, not vendored** -- Magisk/Kitsune is GPLv3, so
-this project redistributes none of it; instead it fetches a specific,
-hash-pinned build from RobThePCGuy's own release, verifies it by SHA-256, and
-caches it.  Magisk's native tools ship inside the APK at ``lib/<abi>/lib*.so``;
-we extract the ``x86_64`` set (BlueStacks guests are x86_64) plus the 32-bit
-``magisk32`` so 32-bit guest apps get root too, renaming ``lib*.so`` to the plain
-names Magisk's daemon expects in ``/data/adb/magisk``.
+Kyubi is RobThePCGuy's stripped, emulator-only Magisk (Kitsune lineage): x86 /
+x86_64 only, no magiskboot / boot-image path, system-mode install. The APK is
+**downloaded on demand, not vendored** -- it is GPLv3, so this project
+redistributes none of it; instead it resolves the **latest** Kyubi release from
+the GitHub API, verifies the downloaded APK against that release asset's own
+published SHA-256 digest, and caches it.  The native tools ship inside the APK at
+``lib/<abi>/lib*.so``; we extract the ``x86_64`` set (BlueStacks guests are
+x86_64) plus the 32-bit ``magisk32`` so 32-bit guest apps get root too, renaming
+``lib*.so`` to the plain names the daemon expects in ``/data/adb/magisk``.
 
-Bumping the Magisk version is a one-line change: update ``PAYLOAD_URL`` and
-``PAYLOAD_SHA256`` together.
+**Auto-latest, still hash-verified.** There is no per-release SHA to bump: every
+cut of a new Kyubi release is picked up automatically, and integrity is kept by
+verifying the bytes against the digest GitHub publishes for that same asset (a
+sibling ``<asset>.sha256`` file is used as a fallback if the API digest is
+absent). It fails closed -- if no digest can be resolved, nothing is installed.
+Pin a specific build with the ``KYUBI_PAYLOAD_TAG`` env var if ever needed.
 
-Credit: Magisk (c) topjohnwu; Magisk Delta (c) HuskyDG; Kitsune build maintained
-by 1q23lyc45.  All GPLv3.
+Credit: Magisk (c) topjohnwu; Magisk Delta (c) HuskyDG; Kitsune build by
+1q23lyc45; Kyubi build by RobThePCGuy.  All GPLv3.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -26,17 +33,32 @@ import zipfile
 
 logger = logging.getLogger(__name__)
 
-# --- Pinned payload (self-hosted, hash-locked) -----------------------------
-# One-line version bump: change URL + SHA256 (+ SIZE) together.
-PAYLOAD_NAME = "Magisk-Delta-Kitsune-27.001-Canary.apk"
-PAYLOAD_URL = (
-    "https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/"
-    "releases/download/magisk-delta-kitsune-27.001/"
-    "Magisk-Delta-Kitsune-27.001-Canary.apk"
-)
-PAYLOAD_SHA256 = "5a3e77d28d4ead274e39b83fa7a4c60d201c43b2d665b30955685179c77d53e7"
-PAYLOAD_SIZE = 12880326
-PAYLOAD_VERSION = "27.001-kitsune"  # human-readable; move in lockstep with the pin
+# --- Auto-latest payload (GitHub release, hash-verified) -------------------
+# No per-release SHA to bump: fetch_apk() resolves the latest Kyubi release from
+# the GitHub API and verifies the APK against that asset's own published digest.
+# Kyubi = RobThePCGuy's stripped, emulator-only Magisk (Kitsune lineage): x86 only,
+# no magiskboot / boot-image path, system-mode install.
+PAYLOAD_REPO = "RobThePCGuy/Kyubi"
+PAYLOAD_ASSET_NAME = "app-release.apk"       # the release asset we install
+PAYLOAD_NAME = "Kyubi-app-release.apk"       # cache filename on disk
+_API = "https://api.github.com/repos/%s/releases" % PAYLOAD_REPO
+LATEST_API = _API + "/latest"
+TAG_API = _API + "/tags/%s"                  # used when KYUBI_PAYLOAD_TAG pins a build
+
+# Resolved at fetch time (updated by fetch_apk); read by magisk_system for the
+# install manifest. Defaults describe the "not yet fetched" state.
+PAYLOAD_SHA256 = ""
+PAYLOAD_VERSION = "latest (Kyubi)"
+
+# Pin a specific release tag instead of "latest" (escape hatch), e.g.
+# KYUBI_PAYLOAD_TAG=v31.0-72524ff2. Normally unset -> newest release wins.
+PIN_TAG_ENV = "KYUBI_PAYLOAD_TAG"
+
+# Local-payload override for offline validation: KYUBI_PAYLOAD_APK points at an
+# APK used verbatim (no download). If KYUBI_PAYLOAD_SHA256 is also set, the file
+# is checked against it; otherwise it is trusted as-is (dev/offline only).
+LOCAL_PAYLOAD_ENV = "KYUBI_PAYLOAD_APK"
+LOCAL_SHA_ENV = "KYUBI_PAYLOAD_SHA256"
 
 # lib/<abi>/lib<tool>.so  ->  DATABIN tool name.  magisk64 + the x86_64 tools
 # come from lib/x86_64; magisk32 from lib/x86 so 32-bit guest apps get root.
@@ -47,7 +69,7 @@ _TOOLS = {
     "magisk64": (_X64, "libmagisk64.so"),    # magiskd / su (64-bit)
     "magiskinit": (_X64, "libmagiskinit.so"),
     "magiskpolicy": (_X64, "libmagiskpolicy.so"),
-    "magiskboot": (_X64, "libmagiskboot.so"),
+    # Kyubi ships no magiskboot (system-mode install never patches a boot image).
     "magisk32": (_X86, "libmagisk32.so"),    # 32-bit app root
 }
 
@@ -65,12 +87,9 @@ STUB_APK_MEMBER = "assets/stub.apk"
 # the subdir).  Values: the APK member.
 _DATABIN_EXTRAS = {
     "util_functions.sh": "assets/util_functions.sh",  # the module-install gate
-    "boot_patch.sh": "assets/boot_patch.sh",
-    "addon.d.sh": "assets/addon.d.sh",
     "stub.apk": "assets/stub.apk",
-    "chromeos/futility": "assets/chromeos/futility",
-    "chromeos/kernel.keyblock": "assets/chromeos/kernel.keyblock",
-    "chromeos/kernel_data_key.vbprivk": "assets/chromeos/kernel_data_key.vbprivk",
+    # Kyubi is system-mode only: no boot_patch.sh, no addon.d.sh, no chromeos
+    # signing tools ship in the APK, so none are staged into the DATABIN.
 }
 
 
@@ -82,11 +101,64 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def fetch_apk(cache_dir: str, progress=None) -> str:
-    """Return a path to the verified pinned APK, downloading + caching if needed.
+def _record(sha256: str, version: str) -> None:
+    """Remember what was actually fetched so the install manifest can stamp it."""
+    global PAYLOAD_SHA256, PAYLOAD_VERSION
+    PAYLOAD_SHA256 = sha256
+    PAYLOAD_VERSION = version
 
-    Re-verifies SHA-256 on every call; a cached file with the wrong hash is
-    re-downloaded.  Raises ``RuntimeError`` on a hash mismatch after download.
+
+def _api_get(url: str):
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "BlueStacks-Root-GUI",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+
+
+def _resolve_release():
+    """Resolve the Kyubi release to install -> (tag, apk_url, expected_sha256).
+
+    Uses the newest release unless ``KYUBI_PAYLOAD_TAG`` pins one.  The expected
+    hash comes from the release asset's own ``digest`` (``sha256:...``); if GitHub
+    hasn't populated it, a sibling ``<asset>.sha256`` release asset is read as a
+    fallback.  ``expected_sha256`` is ``""`` when neither is available -- the
+    caller fails closed rather than install something unverified.
+    """
+    tag_pin = os.environ.get(PIN_TAG_ENV)
+    rel = _api_get(TAG_API % tag_pin if tag_pin else LATEST_API)
+    tag = rel.get("tag_name") or (tag_pin or "?")
+    assets = {a.get("name"): a for a in rel.get("assets", []) if a.get("name")}
+
+    apk = assets.get(PAYLOAD_ASSET_NAME)
+    if not apk or not apk.get("browser_download_url"):
+        raise RuntimeError(
+            "Kyubi release %s has no %s asset." % (tag, PAYLOAD_ASSET_NAME))
+
+    sha = ""
+    digest = apk.get("digest") or ""            # e.g. "sha256:deadbeef..."
+    if digest.lower().startswith("sha256:"):
+        sha = digest.split(":", 1)[1].strip().lower()
+    else:                                       # fallback: a published checksum asset
+        side = assets.get(PAYLOAD_ASSET_NAME + ".sha256")
+        if side and side.get("browser_download_url"):
+            with urllib.request.urlopen(urllib.request.Request(
+                    side["browser_download_url"],
+                    headers={"User-Agent": "BlueStacks-Root-GUI"}), timeout=30) as r:
+                # accept "<hex>" or "<hex>  filename"
+                sha = r.read().decode("utf-8", "replace").split()[0].strip().lower()
+
+    return tag, apk["browser_download_url"], sha
+
+
+def fetch_apk(cache_dir: str, progress=None) -> str:
+    """Return a path to the verified latest Kyubi APK, downloading + caching.
+
+    Resolves the newest release (or ``KYUBI_PAYLOAD_TAG``), verifies the bytes
+    against the release's published SHA-256, and caches.  Fails closed: raises
+    ``RuntimeError`` if no digest can be resolved or the hash doesn't match.
     """
     def _p(msg: str) -> None:
         logger.info(msg)
@@ -95,28 +167,55 @@ def fetch_apk(cache_dir: str, progress=None) -> str:
 
     os.makedirs(cache_dir, exist_ok=True)
     dest = os.path.join(cache_dir, PAYLOAD_NAME)
+
+    # Offline override: use a local Kyubi APK verbatim (dev/validation).
+    local = os.environ.get(LOCAL_PAYLOAD_ENV)
+    if local and os.path.isfile(local):
+        got = _sha256(local)
+        want = (os.environ.get(LOCAL_SHA_ENV) or "").strip().lower()
+        if want and got != want:
+            raise RuntimeError(
+                "%s SHA-256 mismatch: got %s, expected %s"
+                % (LOCAL_PAYLOAD_ENV, got, want))
+        shutil.copyfile(local, dest)
+        _record(got, "local (Kyubi)")
+        _p("Kyubi payload sourced from %s%s."
+           % (LOCAL_PAYLOAD_ENV, " (verified)" if want else ""))
+        return dest
+
+    _p("Resolving latest Kyubi release...")
+    tag, url, expected = _resolve_release()
+    if not expected:
+        raise RuntimeError(
+            "Kyubi release %s exposes no SHA-256 digest (nor a %s.sha256 asset); "
+            "refusing to install unverified. Pin a known build with %s."
+            % (tag, PAYLOAD_ASSET_NAME, PIN_TAG_ENV))
+
+    # Reuse a cached file that already matches the resolved digest.
     if os.path.isfile(dest):
         try:
-            if _sha256(dest) == PAYLOAD_SHA256:
-                _p("Kitsune payload present and verified (cached).")
+            if _sha256(dest) == expected:
+                _record(expected, "%s (Kyubi)" % tag)
+                _p("Kyubi %s present and verified (cached)." % tag)
                 return dest
-        except OSError:  # unreadable/locked cache -> fall through to re-download
+        except OSError:  # unreadable/locked cache -> re-download
             pass
 
-    _p("Downloading Kitsune payload (%s)..." % PAYLOAD_NAME)
+    _p("Downloading Kyubi %s..." % tag)
     tmp = dest + ".part"
     try:
-        urllib.request.urlretrieve(PAYLOAD_URL, tmp)  # pinned URL, hash-checked below
+        urllib.request.urlretrieve(url, tmp)  # hash-checked below
         got = _sha256(tmp)
-        if got != PAYLOAD_SHA256:
+        if got != expected:
             raise RuntimeError(
-                "Kitsune payload SHA-256 mismatch: got %s, expected %s"
-                % (got, PAYLOAD_SHA256))
+                "Kyubi %s SHA-256 mismatch: got %s, expected %s"
+                % (tag, got, expected))
         os.replace(tmp, dest)
     finally:
         if os.path.isfile(tmp):
             os.unlink(tmp)
-    _p("Kitsune payload verified.")
+    _record(expected, "%s (Kyubi)" % tag)
+    _p("Kyubi %s verified." % tag)
     return dest
 
 

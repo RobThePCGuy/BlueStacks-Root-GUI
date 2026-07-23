@@ -20,13 +20,9 @@ class PrivacyPage(QWidget):
                    "and its instances are found.")
     _PROMPT_TEXT = "Select an instance to see its telemetry-block status."
     _NOTE = (
-        "This null-routes ad, tracker, and analytics domains in the instance's "
-        "guest hosts file — the same trick as a phone ad-blocker, but applied "
-        "offline while the instance is shut down. It affects only the emulator "
-        "(never your Windows machine) and is fully reversible.\n\n"
-        "The block covers a version's shared system image, so it applies to "
-        "every instance of that Android version. It does not touch Google Play, "
-        "GMS, or an app's own servers."
+        "Null-routes ad, tracker, and analytics domains in the guest hosts file, "
+        "offline. Emulator only (never your Windows machine), reversible, and it "
+        "never touches Google Play, GMS, or an app's own servers."
     )
 
     def __init__(self, parent=None):
