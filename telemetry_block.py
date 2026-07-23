@@ -1,15 +1,27 @@
 """Offline ad/telemetry blocking for a BlueStacks instance's guest hosts file.
 
-Why this exists
----------------
-BlueStacks and the apps inside it phone home to ad networks and analytics
-endpoints -- and the in-app "disable ads" toggle only covers a fraction of it
-(a live capture still shows the player reaching an ad-exchange like rtbhouse
-with that toggle off).  The surgical, emulator-only fix is the classic Android
-ad-block approach: null-route the ad/tracker domains in the guest's
+Why this exists, and what it does NOT do
+----------------------------------------
+Apps running inside the emulator phone home to ad networks and analytics
+endpoints.  The surgical, emulator-only fix is the classic Android ad-block
+approach: null-route the ad/tracker domains in the guest's
 ``/system/etc/hosts``.  This affects **only the emulator's guest**, never the
 user's Windows machine (unlike a system-wide hosts edit), and it's fully
 reversible.
+
+**It cannot block BlueStacks' own ads.**  Those are served by ``HD-Player.exe``
+on Windows, not by the guest -- proven by a live capture in which the player kept
+open connections to googlesyndication, inmobi, rubiconproject and adnxs while the
+Android guest was **completely powered off**.  Applying this block changed the
+player's ad endpoints not at all (40 before, 40 after, on 5.22.250.1015).  For
+those use :mod:`ad_settings`, which turns off BlueStacks' own config switches and
+measured 40 -> 0 on the same rig.  This module is for in-guest app traffic; the
+two are complementary, not alternatives.
+
+A hosts file also has **no wildcard support**: an entry for ``doubleclick.net``
+does nothing for ``cm.g.doubleclick.net`` or ``pagead2.googlesyndication.com``.
+Real ad traffic is overwhelmingly subdomains, so the observed ones are enumerated
+explicitly in ``HOST_BLOCKLIST``.
 
 How it works
 ------------
@@ -31,7 +43,10 @@ block applies to every instance of that version -- which is what you want for a
 telemetry block.
 
 Requirements: Windows, Administrator (raw-disk access + diskpart), instance shut
-down.
+down, **and a patched engine**.  This edits the guest system image, and BlueStacks
+shuts down an instance whose system image was modified ("...illegally
+tampered...") unless ``integrity_patch`` has been applied -- root is not required
+to trip that check, any modification does it.
 """
 from __future__ import annotations
 
@@ -52,12 +67,15 @@ _BACKUP_NAME = ".hosts_prelock.bak"       # host-side: original hosts before fir
 _STATE_NAME = ".telemetry_block.json"     # host-side: applied? + provenance
 
 # Null-routed domains. Conservative on purpose -- clear third-party ad networks,
-# mobile-attribution SDKs, and the ad exchange caught in a live capture. NOT
+# mobile-attribution SDKs, and the exchanges caught in a live capture. NOT
 # Google Play / GMS infrastructure, NOT an app's own backend. Extend from a live
 # capture of the target build (see module docstring).
+#
+# These are apex domains; each also gets a "www." alias. A hosts file has NO
+# wildcard support, so an apex entry does not cover subdomains -- and real
+# ad traffic is almost entirely subdomains. The observed ones therefore have to
+# be listed explicitly in HOST_BLOCKLIST below.
 BLOCKLIST = (
-    # ad exchange seen phoning home from the player itself (live capture)
-    "rtbhouse.net",
     # generic ad serving
     "doubleclick.net",
     "googlesyndication.com",
@@ -80,6 +98,48 @@ BLOCKLIST = (
     "appsflyer.com",
     "adjust.com",
     "kochava.com",
+    # ad exchange (the earlier list had "rtbhouse.net", which does not resolve --
+    # the real endpoint seen in a capture is esp.rtbhouse.com, below)
+    "rtbhouse.com",
+)
+
+# Fully-qualified hostnames, listed individually because a hosts file cannot
+# wildcard a domain. Every one of these was observed live on 5.22.250.1015 while
+# an apex-only blocklist was already applied -- i.e. these are exactly the
+# endpoints that the apex entries above silently fail to cover.
+HOST_BLOCKLIST = (
+    # google ad serving (subdomains of already-listed apexes)
+    "ad.doubleclick.net",
+    "cm.g.doubleclick.net",
+    "static.doubleclick.net",
+    "googleads.g.doubleclick.net",
+    "securepubads.g.doubleclick.net",
+    "pagead2.googlesyndication.com",
+    "tpc.googlesyndication.com",
+    "ep1.adtrafficquality.google",
+    "ep2.adtrafficquality.google",
+    # inmobi
+    "w.inmobi.com",
+    "api.w.inmobi.com",
+    "sync.inmobi.com",
+    # exchanges / RTB / cookie-sync seen in the live capture
+    "esp.rtbhouse.com",
+    "ib.adnxs.com",
+    "secure.adnxs.com",
+    "fastlane.rubiconproject.com",
+    "pixel-us-east.rubiconproject.com",
+    "token.rubiconproject.com",
+    "rtb.openx.net",
+    "us-u.openx.net",
+    "eu-u.openx.net",
+    "google-bidout-d.openx.net",
+    "oa.openxcdn.net",
+    "hbopenbid.pubmatic.com",
+    "ssum-sec.casalemedia.com",
+    "js-sec.indexww.com",
+    "direct.adsrvr.org",
+    "btlr.sharethrough.com",
+    "ads.betweendigital.com",
 )
 
 
@@ -88,13 +148,26 @@ def _instance_paths(instance_dir: str) -> tuple[str, str]:
             os.path.join(instance_dir, _STATE_NAME))
 
 
-def _block_text() -> str:
-    """The marked block of ``0.0.0.0 <domain>`` lines (both the bare domain and
-    its ``www.`` alias)."""
-    lines = [_BLOCK_BEGIN]
+def blocked_hosts() -> tuple[str, ...]:
+    """Every hostname the block null-routes, de-duplicated and ordered.
+
+    Apex domains contribute their ``www.`` alias; ``HOST_BLOCKLIST`` entries are
+    used verbatim, since they are the subdomains an apex entry cannot cover.
+    """
+    seen: dict[str, None] = {}
     for d in BLOCKLIST:
-        lines.append("0.0.0.0 %s" % d)
-        lines.append("0.0.0.0 www.%s" % d)
+        seen.setdefault(d, None)
+        seen.setdefault("www.%s" % d, None)
+    for h in HOST_BLOCKLIST:
+        seen.setdefault(h, None)
+    return tuple(seen)
+
+
+def _block_text() -> str:
+    """The marked block of ``0.0.0.0 <host>`` lines."""
+    lines = [_BLOCK_BEGIN]
+    for host in blocked_hosts():
+        lines.append("0.0.0.0 %s" % host)
     lines.append(_BLOCK_END)
     return "\n".join(lines) + "\n"
 
@@ -176,7 +249,7 @@ def _write_state(instance_dir: str, applied: bool) -> None:
             pass
         return
     data = {"telemetry_block": True,
-            "domains": len(BLOCKLIST),
+            "domains": len(blocked_hosts()),
             "applied_at": datetime.datetime.now().isoformat(timespec="seconds")}
     try:
         with open(state, "w", encoding="utf-8") as f:
@@ -223,7 +296,7 @@ def apply(instance_dir: str, progress=None) -> list[str]:
             except OSError as exc:
                 logger.warning("could not save hosts backup: %s", exc)
         new = base + _block_text()
-        _p("Writing %d blocked domains into guest hosts..." % len(BLOCKLIST))
+        _p("Writing %d blocked hostnames into guest hosts..." % len(blocked_hosts()))
         out = _write_hosts(dev, sysroot, new, env)
         written = _dump_hosts(dev, sysroot, env)
         if not has_block(written):
@@ -232,7 +305,8 @@ def apply(instance_dir: str, progress=None) -> list[str]:
         if not _es._fsck_ok(dev, env):
             raise RuntimeError("e2fsck reported errors after writing hosts")
     _write_state(instance_dir, True)
-    return ["Blocked %d ad/telemetry domains in the guest hosts file." % len(BLOCKLIST)]
+    return ["Blocked %d ad/tracker hostnames in the guest hosts file."
+            % len(blocked_hosts())]
 
 
 def remove(instance_dir: str, progress=None) -> list[str]:

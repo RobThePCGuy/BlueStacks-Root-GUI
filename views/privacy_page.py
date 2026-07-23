@@ -1,72 +1,179 @@
-"""Privacy page: block ad/telemetry domains in an instance's guest hosts file.
+"""Privacy page: two independent controls, deliberately kept apart because they
+have very different reach.
 
-Offline + reversible, per Android version (Root.vhd is shared across instances
-of a version). Emulator-only -- never touches the user's Windows hosts.
+**BlueStacks ads & telemetry** (top, global) flips BlueStacks' own switches in
+``bluestacks.conf``.  This is the one that actually stops the ads: they are
+served by ``HD-Player.exe`` on Windows, and a live capture measured the player's
+ad/tracker endpoints going 40 -> 0 with these switches off.  It applies to every
+instance, because that config file is global.
+
+**In-guest tracker block** (bottom, per instance) null-routes tracker domains in
+one Android version's guest hosts file.  It reaches apps running *inside* the
+emulator -- it cannot touch BlueStacks' own ads, which never go through the
+guest at all.  It also modifies the system image, so it needs the engine patch.
 """
 from __future__ import annotations
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
-    QPushButton,
+    QPushButton, QGroupBox, QCheckBox,
 )
 
 
 class PrivacyPage(QWidget):
+    # global BlueStacks ad/telemetry switches
+    ads_off_requested = pyqtSignal()
+    ads_restore_requested = pyqtSignal()
+    ads_lock_toggled = pyqtSignal(bool)
+    # per-instance guest hosts block
     block_requested = pyqtSignal()
     unblock_requested = pyqtSignal()
 
     _EMPTY_TEXT = ("No instances detected yet. They appear here once BlueStacks "
                    "and its instances are found.")
-    _PROMPT_TEXT = "Select an instance to see its telemetry-block status."
+    _PROMPT_TEXT = "Select an instance to see its tracker-block status."
+    _ADS_NOTE = (
+        "Turns off BlueStacks' own advertising and stats-upload switches in its "
+        "config. This is what actually stops the ads, and it applies to every "
+        "instance. Close BlueStacks first, since it rewrites the file on exit."
+    )
     _NOTE = (
-        "Null-routes ad, tracker, and analytics domains in the guest hosts file, "
-        "offline. Emulator only (never your Windows machine), reversible, and it "
-        "never touches Google Play, GMS, or an app's own servers."
+        "Null-routes tracker domains in the guest hosts file, offline, for apps "
+        "running inside the emulator. Emulator only (never your Windows machine) "
+        "and reversible. It does not affect BlueStacks' own ads, which are served "
+        "by the Windows player: use the control above for those."
     )
 
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel("1. Choose an instance"))
+        # --- global: BlueStacks' own ad/telemetry switches -------------------
+        ads_box = QGroupBox("BlueStacks ads && telemetry (all instances)")
+        ads_layout = QVBoxLayout(ads_box)
+
+        self.ads_status_label = QLabel("Checking BlueStacks ad settings...")
+        self.ads_status_label.setWordWrap(True)
+        self.ads_status_label.setObjectName("PrivacyAdsStatus")
+        ads_layout.addWidget(self.ads_status_label)
+
+        ads_row = QHBoxLayout()
+        self.ads_off_button = QPushButton("Turn off ads && telemetry")
+        self.ads_off_button.setToolTip(
+            "Turns off every ad, promo and stats-upload switch found in "
+            "bluestacks.conf. Closes BlueStacks first; fully reversible.")
+        self.ads_off_button.clicked.connect(self.ads_off_requested.emit)
+        self.ads_restore_button = QPushButton("Restore BlueStacks defaults")
+        self.ads_restore_button.setToolTip(
+            "Puts every switch back to the value it had before this tool "
+            "changed it.")
+        self.ads_restore_button.clicked.connect(self.ads_restore_requested.emit)
+        ads_row.addWidget(self.ads_off_button)
+        ads_row.addWidget(self.ads_restore_button)
+        ads_layout.addLayout(ads_row)
+
+        self.ads_lock_check = QCheckBox(
+            "Pin the config so BlueStacks cannot turn them back on")
+        self.ads_lock_check.setToolTip(
+            "Marks bluestacks.conf read-only. BlueStacks puts some switches back "
+            "on every start, mostly the stats beacons. Pinning holds them, but "
+            "it also stops BlueStacks saving its own settings changes.")
+        self.ads_lock_check.toggled.connect(self._on_lock_toggled)
+        ads_layout.addWidget(self.ads_lock_check)
+
+        ads_note = QLabel(self._ADS_NOTE)
+        ads_note.setWordWrap(True)
+        ads_note.setObjectName("PrivacyNote")
+        ads_layout.addWidget(ads_note)
+        layout.addWidget(ads_box)
+
+        # --- per instance: guest hosts block ---------------------------------
+        guest_box = QGroupBox("In-guest tracker block (one Android version)")
+        guest_layout = QVBoxLayout(guest_box)
+
+        guest_layout.addWidget(QLabel("1. Choose an instance"))
         self.instance_group = QButtonGroup(self)
         self.instance_group.setExclusive(True)
         self._instance_layout = QVBoxLayout()
-        layout.addLayout(self._instance_layout)
+        guest_layout.addLayout(self._instance_layout)
         self.no_instances_label = QLabel(self._EMPTY_TEXT)
         self.no_instances_label.setWordWrap(True)
         self.no_instances_label.hide()
-        layout.addWidget(self.no_instances_label)
+        guest_layout.addWidget(self.no_instances_label)
 
         self.status_label = QLabel(self._PROMPT_TEXT)
         self.status_label.setWordWrap(True)
         self.status_label.setObjectName("PrivacyStatus")
-        layout.addWidget(self.status_label)
+        guest_layout.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
-        self.block_button = QPushButton("Block ads & telemetry")
+        self.block_button = QPushButton("Block in-guest trackers")
         self.block_button.setToolTip(
-            "Writes the block into the guest hosts file offline. Closes BlueStacks "
-            "first; reversible.")
+            "Writes the block into the guest hosts file offline. Closes "
+            "BlueStacks first; reversible. Needs the engine patch.")
         self.block_button.clicked.connect(self.block_requested.emit)
         self.unblock_button = QPushButton("Remove block")
         self.unblock_button.setToolTip("Restores the guest hosts file offline.")
         self.unblock_button.clicked.connect(self.unblock_requested.emit)
         button_row.addWidget(self.block_button)
         button_row.addWidget(self.unblock_button)
-        layout.addLayout(button_row)
+        guest_layout.addLayout(button_row)
 
         note = QLabel(self._NOTE)
         note.setWordWrap(True)
         note.setObjectName("PrivacyNote")
-        layout.addWidget(note)
+        guest_layout.addWidget(note)
+        layout.addWidget(guest_box)
         layout.addStretch(1)
 
         self._radios: dict[str, QRadioButton] = {}
         self._statuses: dict[str, dict | None] = {}
+        self._ads_status: dict | None = None
+        self._ads_total = 0
         self._busy = False
+        self._emit_lock = True
         self._update()
+
+    # --- global ad settings --------------------------------------------------
+
+    def _on_lock_toggled(self, checked: bool) -> None:
+        # set_ad_status() drives the checkbox to match reality; only a real user
+        # click should reach the controller.
+        if self._emit_lock:
+            self.ads_lock_toggled.emit(checked)
+
+    def set_ad_status(self, status: dict | None, total_switches: int = 0) -> None:
+        """``status`` is ad_settings.status() (None when not applied);
+        ``total_switches`` is how many switches the current config exposes."""
+        self._ads_status = status
+        self._ads_total = total_switches
+        self._emit_lock = False
+        self.ads_lock_check.setChecked(bool(status and status.get("locked")))
+        self._emit_lock = True
+        self._update()
+
+    def _ads_status_text(self) -> str:
+        st = self._ads_status
+        if not st:
+            if not self._ads_total:
+                return ("BlueStacks ad settings: no switches found in this build. "
+                        "Nothing to turn off here.")
+            return ("BlueStacks ads and telemetry are ON (%d switches available)."
+                    % self._ads_total)
+        reverted = st.get("reverted") or []
+        text = "BlueStacks ads and telemetry are OFF (%d switches)." % st.get("keys", 0)
+        if reverted:
+            text += (" BlueStacks has turned %d back on since, mostly stats "
+                     "beacons. Turn them off again, or pin the config to hold them."
+                     % len(reverted))
+        unmanaged = st.get("unmanaged") or []
+        if unmanaged:
+            text += (" This BlueStacks build added %d new switch(es); turning off "
+                     "again will cover them." % len(unmanaged))
+        return text
+
+    # --- per-instance guest block -------------------------------------------
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -111,16 +218,30 @@ class PrivacyPage(QWidget):
         st = self._statuses.get(uid)
         if not st:
             return "%s: no telemetry block applied." % uid
-        return "%s: blocking %s ad/telemetry domains." % (uid, st.get("domains", "?"))
+        return "%s: blocking %s tracker domains in-guest." % (uid, st.get("domains", "?"))
 
     def _update(self, *_args) -> None:
+        busy = self._busy
+
+        applied = bool(self._ads_status)
+        has_switches = bool(self._ads_total)
+        # Offer "turn off" whenever anything is still on (including after
+        # BlueStacks reverts a key), and "restore" once we've recorded originals.
+        reverted = bool(applied and self._ads_status.get("reverted"))
+        unmanaged = bool(applied and self._ads_status.get("unmanaged"))
+        show_off = has_switches and (not applied or reverted or unmanaged)
+        self.ads_status_label.setText(self._ads_status_text())
+        self.ads_off_button.setVisible(show_off)
+        self.ads_off_button.setEnabled(show_off and not busy)
+        self.ads_restore_button.setVisible(applied)
+        self.ads_restore_button.setEnabled(applied and not busy)
+        self.ads_lock_check.setEnabled(has_switches and not busy)
+
         uid = self.selected_instance_id()
         blocked = bool(uid and self._statuses.get(uid))
         self.status_label.setText(self._status_text(uid))
-        # Block when an instance is chosen and it's not blocked; Remove once it is.
         show_block = bool(uid) and not blocked
         self.block_button.setVisible(show_block)
         self.unblock_button.setVisible(blocked)
-        busy = self._busy
         self.block_button.setEnabled(show_block and not busy)
         self.unblock_button.setEnabled(blocked and not busy)

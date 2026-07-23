@@ -58,7 +58,7 @@ The window has five tabs down the left side. You'll only ever need the first two
 | **Instances** | Your instances with live **Root** and **R/W** status. This is where you flip root on and off. |
 | **Magisk** | Full offline Magisk system-root install/uninstall per instance, plus the post-boot manager, ReZygisk, and LSPosed installs. More involved than basic rooting; optional. |
 | **Modules** | Push a Magisk module `.zip` into a running instance and flash it for you. Optional. |
-| **Privacy** | Block ad/telemetry domains in an instance's guest hosts file, offline and reversible. Optional. |
+| **Privacy** | Turn BlueStacks' own ads and telemetry off (its config switches, all instances), and optionally block tracker domains inside one instance's guest hosts file. Both reversible. Optional. |
 
 A **light/dark theme** toggle sits in the header, and a **progress bar** along the bottom shows what the tool is doing during any operation.
 
@@ -245,7 +245,8 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
 
 ## Features
 
-- **Nav-Rail Layout** - A left navigation rail splits the app into five pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (per-instance root/R-W toggles), **Magisk** (full offline Magisk system-root install/uninstall, manager, ReZygisk, LSPosed), **Modules** (push and flash a Magisk module), and **Privacy** (block ad/telemetry domains in the guest hosts file). A light/dark theme toggle sits in the header
+- **Nav-Rail Layout** - A left navigation rail splits the app into five pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (per-instance root/R-W toggles), **Magisk** (full offline Magisk system-root install/uninstall, manager, ReZygisk, LSPosed), **Modules** (push and flash a Magisk module), and **Privacy** (turn BlueStacks' own ads/telemetry off, plus an in-guest tracker block). A light/dark theme toggle sits in the header
+- **Ad and Telemetry Removal** - Turns off BlueStacks' own advertising, promo, and stats-upload switches in `bluestacks.conf`. This is what actually stops the ads: they are served by `HD-Player.exe` on Windows, so no change inside Android can reach them. Measured on 5.22.250.1015, the player's ad/tracker endpoints went from 40 to 0. The switches are found by pattern rather than a fixed list, so a BlueStacks update that renames or adds one is still covered; every original value is recorded for an exact restore, and an optional read-only pin stops BlueStacks turning the stats beacons back on
 - **Auto-Detection** - Discovers BlueStacks installation paths via the Windows Registry (Normal, China, and MSI editions) and picks the right rooting method per version automatically
 - **Instance Listing** - Lists every instance by its display name with live Root and R/W status (root shows a green highlight when on), including newer instances that use a single `Data.vhdx` layout (created or cloned): not just the classic `fastboot.vdi`/`Root.vhd` ones
 - **Engine-Patch Status** - The Dashboard's engine button reads its own state at a glance: *"Patch BlueStacks Engine (required for root),"* *"Engine patched (click to Undo),"* or *"Engine partially patched (click to finish)."* It's per-install and applies to every instance
@@ -271,7 +272,7 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
   - `instances_page.py` - Instance grid, Toggle Root/R-W, patch-gating banner
   - `magisk_page.py` - Full offline Magisk system-root install/uninstall per instance, plus the manager, ReZygisk, and LSPosed installs
   - `modules_page.py` - Pick a running instance, pick a module `.zip`, push and flash
-  - `privacy_page.py` - Block ad/telemetry domains in an instance's guest hosts file, offline and reversible
+  - `privacy_page.py` - Turn BlueStacks' own ads/telemetry off (global config switches), plus the per-instance in-guest tracker block
   - `progress.py` - Docked status/progress indicator with step percentages
   - `theme.py` - Light/dark QSS themes and persistence
   - `engine_rules.py` - Qt-free decision logic for patch-gating and update-revert detection (unit-testable without a `QApplication`)
@@ -288,7 +289,8 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
 - `magisk_payload.py` - Downloads and hash-verifies the latest Kyubi (Magisk) release APK, and extracts the native tools/assets `magisk_system.py` needs
 - `rezygisk_payload.py` - Downloads and hash-verifies the pinned ReZygisk module (standalone Zygisk for the emulator)
 - `lsposed_payload.py` - Downloads and hash-verifies the pinned LSPosed (Zygisk) module
-- `telemetry_block.py` - Null-routes ad/telemetry domains in an instance's guest hosts file, offline via `Root.vhd`
+- `ad_settings.py` - Turns BlueStacks' own ad/promo/stats switches off in the global `bluestacks.conf`. Discovers them by pattern so a version update can't silently outdate the list, records originals for an exact restore, and can pin the file read-only
+- `telemetry_block.py` - Null-routes tracker domains in an instance's guest hosts file, offline via `Root.vhd`. Reaches apps inside the emulator only: BlueStacks' own ads are host-side, so `ad_settings.py` handles those
 - `magisk_assets/` - Version-pinned system-install assets (`config`, `bootanim.rc`, `bootanim.rc.gz`) bundled for the Magisk system-mode install
 
 ### Dependencies
