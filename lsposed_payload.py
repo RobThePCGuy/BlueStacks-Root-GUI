@@ -20,12 +20,9 @@ Credit: LSPosed (c) LSPosed Developers, GPLv3.
 """
 from __future__ import annotations
 
-import hashlib
-import logging
 import os
-import urllib.request
 
-logger = logging.getLogger(__name__)
+import payload_fetch
 
 # --- Pinned module (official release, hash-locked) -------------------------
 # One-line version bump: change URL + SHA256 (+ SIZE) together. Use the *zygisk*
@@ -40,14 +37,6 @@ MODULE_SIZE = 2462055
 MODULE_VERSION = "v1.9.2 (7024)"  # human-readable; move in lockstep with the pin
 
 
-def _sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def fetch_module(cache_dir: str, progress=None) -> str:
     """Return a path to the verified pinned LSPosed zip, downloading + caching if
     needed.
@@ -56,33 +45,7 @@ def fetch_module(cache_dir: str, progress=None) -> str:
     re-downloaded.  Raises ``RuntimeError`` on a hash mismatch after download.
     Hand the returned path to ``adb_handler.install_module``.
     """
-    def _p(msg: str) -> None:
-        logger.info(msg)
-        if progress:
-            progress(msg)
-
     os.makedirs(cache_dir, exist_ok=True)
     dest = os.path.join(cache_dir, MODULE_NAME)
-    if os.path.isfile(dest):
-        try:
-            if _sha256(dest) == MODULE_SHA256:
-                _p("LSPosed module present and verified (cached).")
-                return dest
-        except OSError:  # unreadable/locked cache -> fall through to re-download
-            pass
-
-    _p("Downloading LSPosed (%s)..." % MODULE_NAME)
-    tmp = dest + ".part"
-    try:
-        urllib.request.urlretrieve(MODULE_URL, tmp)  # pinned URL, hash-checked below
-        got = _sha256(tmp)
-        if got != MODULE_SHA256:
-            raise RuntimeError(
-                "LSPosed module SHA-256 mismatch: got %s, expected %s"
-                % (got, MODULE_SHA256))
-        os.replace(tmp, dest)
-    finally:
-        if os.path.isfile(tmp):
-            os.unlink(tmp)
-    _p("LSPosed module verified.")
-    return dest
+    return payload_fetch.fetch_verified(
+        MODULE_URL, dest, MODULE_SHA256, label="LSPosed module", progress=progress)

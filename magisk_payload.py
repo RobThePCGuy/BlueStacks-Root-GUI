@@ -23,13 +23,15 @@ Credit: Magisk (c) topjohnwu; Magisk Delta (c) HuskyDG; Kitsune build by
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import shutil
+import urllib.error
 import urllib.request
 import zipfile
+
+import payload_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -93,19 +95,27 @@ _DATABIN_EXTRAS = {
 }
 
 
-def _sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _record(sha256: str, version: str) -> None:
     """Remember what was actually fetched so the install manifest can stamp it."""
     global PAYLOAD_SHA256, PAYLOAD_VERSION
     PAYLOAD_SHA256 = sha256
     PAYLOAD_VERSION = version
+
+
+def _open_url(req: urllib.request.Request, timeout: int = 30):
+    """``urllib.request.urlopen``, but a GitHub rate-limit response (403/429) is
+    turned into a clear, actionable ``RuntimeError`` instead of a raw
+    ``HTTPError``. GitHub caps unauthenticated REST API requests at 60/hour per
+    source IP (tightened further in May 2025), so a shared/CGNAT egress IP or
+    rapid retries can trip this -- this is the only network path in the app
+    that calls the GitHub API rather than a pinned direct-download URL."""
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403, 429):
+            raise RuntimeError(
+                "GitHub rate-limited this request, try again later.") from exc
+        raise
 
 
 def _api_get(url: str):
@@ -114,10 +124,17 @@ def _api_get(url: str):
         "User-Agent": "BlueStacks-Root-GUI",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with _open_url(req) as r:
         return json.load(r)
 
 
+# Trust-model note: unlike rezygisk_payload/lsposed_payload (which pin both the
+# download URL and the SHA-256 in source), this resolves the *latest* release
+# and verifies against that release's own published digest -- TOFU per
+# release, not a pinned hash like the sibling ReZygisk/LSPosed modules. This is
+# currently unpinned because Kyubi is the maintainer's own repo; if this
+# pattern is ever extended to fetch a genuinely third-party payload, it should
+# use the pinned-hash model instead.
 def _resolve_release():
     """Resolve the Kyubi release to install -> (tag, apk_url, expected_sha256).
 
@@ -144,9 +161,9 @@ def _resolve_release():
     else:                                       # fallback: a published checksum asset
         side = assets.get(PAYLOAD_ASSET_NAME + ".sha256")
         if side and side.get("browser_download_url"):
-            with urllib.request.urlopen(urllib.request.Request(
+            with _open_url(urllib.request.Request(
                     side["browser_download_url"],
-                    headers={"User-Agent": "BlueStacks-Root-GUI"}), timeout=30) as r:
+                    headers={"User-Agent": "BlueStacks-Root-GUI"})) as r:
                 # accept "<hex>" or "<hex>  filename"
                 sha = r.read().decode("utf-8", "replace").split()[0].strip().lower()
 
@@ -171,7 +188,7 @@ def fetch_apk(cache_dir: str, progress=None) -> str:
     # Offline override: use a local Kyubi APK verbatim (dev/validation).
     local = os.environ.get(LOCAL_PAYLOAD_ENV)
     if local and os.path.isfile(local):
-        got = _sha256(local)
+        got = payload_fetch.sha256_file(local)
         want = (os.environ.get(LOCAL_SHA_ENV) or "").strip().lower()
         if want and got != want:
             raise RuntimeError(
@@ -191,31 +208,8 @@ def fetch_apk(cache_dir: str, progress=None) -> str:
             "refusing to install unverified. Pin a known build with %s."
             % (tag, PAYLOAD_ASSET_NAME, PIN_TAG_ENV))
 
-    # Reuse a cached file that already matches the resolved digest.
-    if os.path.isfile(dest):
-        try:
-            if _sha256(dest) == expected:
-                _record(expected, "%s (Kyubi)" % tag)
-                _p("Kyubi %s present and verified (cached)." % tag)
-                return dest
-        except OSError:  # unreadable/locked cache -> re-download
-            pass
-
-    _p("Downloading Kyubi %s..." % tag)
-    tmp = dest + ".part"
-    try:
-        urllib.request.urlretrieve(url, tmp)  # hash-checked below
-        got = _sha256(tmp)
-        if got != expected:
-            raise RuntimeError(
-                "Kyubi %s SHA-256 mismatch: got %s, expected %s"
-                % (tag, got, expected))
-        os.replace(tmp, dest)
-    finally:
-        if os.path.isfile(tmp):
-            os.unlink(tmp)
+    payload_fetch.fetch_verified(url, dest, expected, label="Kyubi %s" % tag, progress=progress)
     _record(expected, "%s (Kyubi)" % tag)
-    _p("Kyubi %s verified." % tag)
     return dest
 
 

@@ -25,12 +25,22 @@ started." (referenced by a RIP-relative `lea` at/near the function entry), so it
 is independent of build offsets and works across the per-Android-version su
 variants. Reversible via the `.orig` backup.
 
-Usage:
+Where this is actually used
+----------------------------
+The GUI app never runs this module directly. Its locator logic
+(`DEVMODE_STRING`, `PATCH`, `_find_isdevmode_entry`, `_elf_segments`,
+`_off_to_vaddr`) is imported by `su_patch_offline.py`, which patches the guest
+`su` bytes straight inside the instance's `Data.vhdx`/`Root.vhd` -- no running
+instance, no ADB, no admin shell. That offline path is how the app actually
+roots patch-mode BlueStacks.
+
+`patch_su()` below and the `__main__` entry point are a standalone dev/debug
+tool for patching an *already-extracted* su file on disk directly (e.g. one
+pulled out for inspection). Getting a manually-patched file back onto a device
+is on you; this module doesn't do it for you.
+
+Usage (standalone dev tool, not the app's root path):
     python su_patch.py <su-file-or-dir> [more ...]
-Then push the patched su back to the guest with /system R/W:
-    HD-Adb.exe push su /system/xbin/su
-    HD-Adb.exe push su /system/xbin/bstk/su
-    HD-Adb.exe shell chmod 06755 /system/xbin/su /system/xbin/bstk/su
 """
 from __future__ import annotations
 

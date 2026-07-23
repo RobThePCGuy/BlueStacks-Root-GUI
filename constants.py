@@ -32,7 +32,6 @@ def parse_version(s):
     except Exception:
         return None
 
-# FIX: Add constants to identify the source application
 APP_SOURCE_NXT = "NXT"
 APP_SOURCE_MSI = "MSI"
 APP_SOURCE_NXT_CN = "CN"

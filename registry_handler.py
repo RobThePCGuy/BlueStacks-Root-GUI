@@ -18,58 +18,39 @@ def get_all_bluestacks_installations() -> list[Installation]:
         constants.APP_SOURCE_NXT_CN: constants.REGISTRY_CN_BASE_PATH,
         constants.APP_SOURCE_MSI: constants.REGISTRY_MSI_BASE_PATH,
     }
+    # (registry value name, parser for a REG_SZ value) -- read and logged the
+    # same way for every key; only the parser differs (Version needs
+    # constants.parse_version, the rest are plain strings).
+    value_specs = (
+        (constants.REGISTRY_USER_DIR_KEY, str),
+        (constants.REGISTRY_DATA_DIR_KEY, str),
+        (constants.REGISTRY_INSTALL_DIR_KEY, str),
+        (constants.REGISTRY_VERSION_KEY, constants.parse_version),
+    )
 
     for source_name, reg_path in reg_sources.items():
         full_reg_path_log = f"HKEY_LOCAL_MACHINE\\{reg_path}"
-        user_dir = None
-        data_dir = None
-        install_dir = None
-        version = None
+        values: dict[str, Any] = {}
         try:
             with winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE, reg_path, 0, winreg.KEY_READ
             ) as key:
                 logger.debug(f"Successfully opened registry key: {full_reg_path_log} for {source_name}")
-                try:
-                    reg_value, reg_type = winreg.QueryValueEx(key, constants.REGISTRY_USER_DIR_KEY)
-                    if reg_type == winreg.REG_SZ:
-                        user_dir = str(reg_value)
-                        logger.info(f"Found '{constants.REGISTRY_USER_DIR_KEY}' for {source_name}: {user_dir}")
-                except FileNotFoundError:
-                    logger.debug(f"'{constants.REGISTRY_USER_DIR_KEY}' not found for {source_name}.")
-                except Exception as e:
-                    logger.error(f"Error reading '{constants.REGISTRY_USER_DIR_KEY}' for {source_name}: {e}")
+                for key_name, parse in value_specs:
+                    try:
+                        reg_value, reg_type = winreg.QueryValueEx(key, key_name)
+                        if reg_type == winreg.REG_SZ:
+                            values[key_name] = parse(reg_value)
+                            logger.info(f"Found '{key_name}' for {source_name}: {values[key_name]}")
+                    except FileNotFoundError:
+                        logger.debug(f"'{key_name}' not found for {source_name}.")
+                    except Exception as e:
+                        logger.error(f"Error reading '{key_name}' for {source_name}: {e}")
 
-                try:
-                    reg_value, reg_type = winreg.QueryValueEx(key, constants.REGISTRY_DATA_DIR_KEY)
-                    if reg_type == winreg.REG_SZ:
-                        data_dir = str(reg_value)
-                        logger.info(f"Found '{constants.REGISTRY_DATA_DIR_KEY}' for {source_name}: {data_dir}")
-                except FileNotFoundError:
-                    logger.debug(f"'{constants.REGISTRY_DATA_DIR_KEY}' not found for {source_name}.")
-                except Exception as e:
-                    logger.error(f"Error reading '{constants.REGISTRY_DATA_DIR_KEY}' for {source_name}: {e}")
-
-                try:
-                    reg_value, reg_type = winreg.QueryValueEx(key, constants.REGISTRY_INSTALL_DIR_KEY)
-                    if reg_type == winreg.REG_SZ:
-                        install_dir = str(reg_value)
-                        logger.info(f"Found '{constants.REGISTRY_INSTALL_DIR_KEY}' for {source_name}: {install_dir}")
-                except FileNotFoundError:
-                    logger.debug(f"'{constants.REGISTRY_INSTALL_DIR_KEY}' not found for {source_name}.")
-                except Exception as e:
-                    logger.error(f"Error reading '{constants.REGISTRY_INSTALL_DIR_KEY}' for {source_name}: {e}")
-
-                try:
-                    reg_value, reg_type = winreg.QueryValueEx(key, constants.REGISTRY_VERSION_KEY)
-                    if reg_type == winreg.REG_SZ:
-                        version = constants.parse_version(reg_value)
-                        logger.info(f"Found '{constants.REGISTRY_VERSION_KEY}' for {source_name}: {reg_value} -> {version}")
-                except FileNotFoundError:
-                    logger.debug(f"'{constants.REGISTRY_VERSION_KEY}' not found for {source_name}.")
-                except Exception as e:
-                    logger.error(f"Error reading '{constants.REGISTRY_VERSION_KEY}' for {source_name}: {e}")
-
+            user_dir = values.get(constants.REGISTRY_USER_DIR_KEY)
+            data_dir = values.get(constants.REGISTRY_DATA_DIR_KEY)
+            install_dir = values.get(constants.REGISTRY_INSTALL_DIR_KEY)
+            version = values.get(constants.REGISTRY_VERSION_KEY)
             if user_dir and data_dir:
                 config_path = os.path.join(user_dir, constants.BLUESTACKS_CONF_FILENAME)
                 installations.append({

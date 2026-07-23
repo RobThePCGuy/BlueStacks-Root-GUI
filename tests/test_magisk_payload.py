@@ -6,11 +6,13 @@ real release or the wire.
 """
 import hashlib
 import os
+import urllib.error
 import zipfile
 
 import pytest
 
 import magisk_payload as mp
+import payload_fetch
 
 
 @pytest.fixture(autouse=True)
@@ -107,7 +109,7 @@ def test_fetch_apk_returns_cached_when_hash_matches(tmp_path, monkeypatch):
     # any download attempt would be a bug -> make it explode
     def _boom(*a, **k):
         raise AssertionError("fetch_apk downloaded despite a valid cached file")
-    monkeypatch.setattr(mp.urllib.request, "urlretrieve", _boom)
+    monkeypatch.setattr(payload_fetch.urllib.request, "urlretrieve", _boom)
 
     assert mp.fetch_apk(str(tmp_path)) == str(cached)
     # the resolved release is recorded for the install manifest
@@ -138,18 +140,18 @@ def test_fetch_apk_redownloads_when_cache_unreadable(tmp_path, monkeypatch):
     cached = tmp_path / mp.PAYLOAD_NAME
     cached.write_bytes(b"placeholder-that-cannot-be-read")
 
-    real_sha = mp._sha256
+    real_sha = payload_fetch.sha256_file
 
     def flaky_sha(path):
         if os.path.abspath(path) == os.path.abspath(str(cached)):
             raise OSError("locked")   # cached file unreadable
         return real_sha(path)         # the fresh .part hashes fine
-    monkeypatch.setattr(mp, "_sha256", flaky_sha)
+    monkeypatch.setattr(payload_fetch, "sha256_file", flaky_sha)
 
     def fake_dl(url, dest):
         with open(dest, "wb") as f:
             f.write(good)
-    monkeypatch.setattr(mp.urllib.request, "urlretrieve", fake_dl)
+    monkeypatch.setattr(payload_fetch.urllib.request, "urlretrieve", fake_dl)
 
     assert mp.fetch_apk(str(tmp_path)) == str(cached)
     assert cached.read_bytes() == good   # re-downloaded over the bad cache
@@ -162,7 +164,7 @@ def test_fetch_apk_rejects_bad_hash_and_cleans_up(tmp_path, monkeypatch):
     def _fake_download(url, dest):
         with open(dest, "wb") as f:
             f.write(b"corrupted-or-tampered")
-    monkeypatch.setattr(mp.urllib.request, "urlretrieve", _fake_download)
+    monkeypatch.setattr(payload_fetch.urllib.request, "urlretrieve", _fake_download)
 
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
         mp.fetch_apk(str(tmp_path))
@@ -180,9 +182,44 @@ def test_fetch_apk_fails_closed_when_no_digest(tmp_path, monkeypatch):
 
     def _boom(*a, **k):
         raise AssertionError("downloaded despite having no digest to verify")
-    monkeypatch.setattr(mp.urllib.request, "urlretrieve", _boom)
+    monkeypatch.setattr(payload_fetch.urllib.request, "urlretrieve", _boom)
 
     with pytest.raises(RuntimeError, match="refusing to install unverified"):
+        mp.fetch_apk(str(tmp_path))
+
+
+@pytest.mark.parametrize("code", [403, 429])
+def test_open_url_converts_github_rate_limit_to_clear_message(monkeypatch, code):
+    def _raise_rate_limited(req, timeout=30):
+        raise urllib.error.HTTPError(
+            "https://api.github.com/x", code, "rate limited", {}, None)
+    monkeypatch.setattr(mp.urllib.request, "urlopen", _raise_rate_limited)
+
+    with pytest.raises(RuntimeError, match="rate-limited"):
+        mp._api_get("https://api.github.com/repos/x/releases/latest")
+
+
+def test_open_url_reraises_other_http_errors_unconverted(monkeypatch):
+    def _raise_not_found(req, timeout=30):
+        raise urllib.error.HTTPError(
+            "https://api.github.com/x", 404, "not found", {}, None)
+    monkeypatch.setattr(mp.urllib.request, "urlopen", _raise_not_found)
+
+    # A non-rate-limit HTTPError must propagate as-is, not be swallowed or
+    # relabeled as a rate-limit message.
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        mp._api_get("https://api.github.com/repos/x/releases/latest")
+    assert exc_info.value.code == 404
+
+
+def test_resolve_release_surfaces_rate_limit_message_end_to_end(tmp_path, monkeypatch):
+    """The friendly message must reach fetch_apk's caller, not just _api_get's."""
+    def _raise_rate_limited(req, timeout=30):
+        raise urllib.error.HTTPError(
+            "https://api.github.com/x", 403, "rate limited", {}, None)
+    monkeypatch.setattr(mp.urllib.request, "urlopen", _raise_rate_limited)
+
+    with pytest.raises(RuntimeError, match="rate-limited"):
         mp.fetch_apk(str(tmp_path))
 
 
