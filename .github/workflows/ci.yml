@@ -38,3 +38,24 @@ jobs:
       # registry_handler.py does not break this on ubuntu.
       - name: Compile check
         run: python -m compileall -q .
+
+  test:
+    # conftest.py's autouse fixture monkeypatches registry_handler at import
+    # time, and admin.py imports ctypes.wintypes -- both Windows-only, so the
+    # suite needs a real Windows runner and can't join the `verify` job above.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest
