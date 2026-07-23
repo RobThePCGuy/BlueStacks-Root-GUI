@@ -706,14 +706,14 @@ class MainWindow(QWidget):
             return
         app_root_note = (
             "<p><b>Heads up:</b> this instance has app-root (Toggle Root) on. "
-            "Magisk brings its own <code>su</code> — turn app-root off on the "
+            "Magisk brings its own <code>su</code>. Turn app-root off on the "
             "Instances tab to avoid two competing su providers.</p>"
             if instance.get("root_enabled") else "")
         if not self._confirm(
                 "Install Magisk",
                 "Install full offline Magisk system-root into %s?" % uid,
                 "<p>Writes Magisk into the instance's system and data images while "
-                "it's shut down — no R/W toggle, no temp-root. All BlueStacks "
+                "it's shut down, no R/W toggle, no temp-root. All BlueStacks "
                 "processes close first.</p>"
                 "<p>When it finishes: start the instance, enable ADB, then click "
                 "<b>Install manager app</b>.</p>" + app_root_note):

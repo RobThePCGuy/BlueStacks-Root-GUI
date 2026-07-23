@@ -66,8 +66,8 @@ class InstancesPage(QWidget):
         self.launch_button.clicked.connect(self.launch_requested.emit)
         self.restart_button = QPushButton("Restart")
         self.restart_button.setToolTip(
-            "Close all BlueStacks processes and relaunch the selected instance — "
-            "the reliable reboot (adb reboot doesn't restart BlueStacks cleanly).")
+            "Close all BlueStacks processes and relaunch the selected instance. "
+            "The reliable reboot (adb reboot doesn't restart BlueStacks cleanly).")
         self.restart_button.clicked.connect(self.restart_requested.emit)
         for _b in (self.root_toggle_button, self.rw_toggle_button,
                    self.launch_button, self.restart_button):

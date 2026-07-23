@@ -9,7 +9,7 @@ grants root only to a **cryptographically-signed whitelist** of its own packages
 
     Permission denied - command not in whitelist  /  uid %d not allowed to su
 
-The one escape hatch in the binary is `isDeveloperMode()` — at the final deny
+The one escape hatch in the binary is `isDeveloperMode()`, at the final deny
 gate the su does:
 
     if (!isDeveloperMode()) { report_su_denied; return 1; }   // DENY
@@ -162,7 +162,7 @@ def patch_su(path: str, make_backup: bool = True) -> str:
         return "skip (not an ELF su)"
     entry = _find_isdevmode_entry(data)
     if entry is None:
-        return "skip (no isDeveloperMode gate — likely an older/open su)"
+        return "skip (no isDeveloperMode gate, likely an older/open su)"
     cur = bytes(data[entry:entry + 3])
     if cur == PATCH:
         return f"already patched (isDeveloperMode@0x{entry:X})"
