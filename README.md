@@ -50,13 +50,15 @@ That's the whole thing for most people. Want Magisk with modules and hiding, or 
 
 ## What You'll See
 
-The window has three tabs down the left side. You'll only ever need the first two for basic rooting.
+The window has five tabs down the left side. You'll only ever need the first two for basic rooting.
 
 | Tab | What it's for |
 |-----|---------------|
 | **Dashboard** | Where BlueStacks was found, the engine-patch button, and how many instances are rooted. **Start here.** |
 | **Instances** | Your instances with live **Root** and **R/W** status. This is where you flip root on and off. |
+| **Magisk** | Full offline Magisk system-root install/uninstall per instance, plus the post-boot manager, ReZygisk, and LSPosed installs. More involved than basic rooting; optional. |
 | **Modules** | Push a Magisk module `.zip` into a running instance and flash it for you. Optional. |
+| **Privacy** | Block ad/telemetry domains in an instance's guest hosts file, offline and reversible. Optional. |
 
 A **light/dark theme** toggle sits in the header, and a **progress bar** along the bottom shows what the tool is doing during any operation.
 
@@ -243,7 +245,7 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
 
 ## Features
 
-- **Nav-Rail Layout** - A left navigation rail splits the app into three pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (per-instance root/R-W toggles), and **Modules** (push and flash a Magisk module). A light/dark theme toggle sits in the header
+- **Nav-Rail Layout** - A left navigation rail splits the app into five pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (per-instance root/R-W toggles), **Magisk** (full offline Magisk system-root install/uninstall, manager, ReZygisk, LSPosed), **Modules** (push and flash a Magisk module), and **Privacy** (block ad/telemetry domains in the guest hosts file). A light/dark theme toggle sits in the header
 - **Auto-Detection** - Discovers BlueStacks installation paths via the Windows Registry (Normal, China, and MSI editions) and picks the right rooting method per version automatically
 - **Instance Listing** - Lists every instance by its display name with live Root and R/W status (root shows a green highlight when on), including newer instances that use a single `Data.vhdx` layout (created or cloned): not just the classic `fastboot.vdi`/`Root.vhd` ones
 - **Engine-Patch Status** - The Dashboard's engine button reads its own state at a glance: *"Patch BlueStacks Engine (required for root),"* *"Engine patched (click to Undo),"* or *"Engine partially patched (click to finish)."* It's per-install and applies to every instance
@@ -256,7 +258,6 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
 - **Reversible** - Every binary patch backs up to a `.prepatch.bak`; every guest-`su` patch records the original bytes. "Undo Engine Patch" and toggling root off restore the originals
 - **Process Handling** - Closes all BlueStacks processes (player, services, and the Multi-Instance Manager) before applying changes
 - **Responsive UI** - Long operations run on background threads (`QThread`) so the window never freezes, and a docked progress bar reports real step-by-step percentages
-- **Internationalization** - Includes English and Japanese translations
 
 ## Development
 
@@ -265,10 +266,12 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
 - `main.py` - Application entry point and controller: wires the UI to the handlers, owns the background-thread orchestration
 - `views/` - PyQt5 UI package (nav-rail layout)
   - `main_window.py` - Main window: nav rail, page stack, worker threads, docked progress bar
-  - `nav_rail.py` - Left navigation rail (Dashboard / Instances / Modules)
+  - `nav_rail.py` - Left navigation rail (Dashboard / Instances / Magisk / Modules / Privacy)
   - `dashboard_page.py` - Install paths, engine-patch button, update-revert alert, rooted-count stat
   - `instances_page.py` - Instance grid, Toggle Root/R-W, patch-gating banner
+  - `magisk_page.py` - Full offline Magisk system-root install/uninstall per instance, plus the manager, ReZygisk, and LSPosed installs
   - `modules_page.py` - Pick a running instance, pick a module `.zip`, push and flash
+  - `privacy_page.py` - Block ad/telemetry domains in an instance's guest hosts file, offline and reversible
   - `progress.py` - Docked status/progress indicator with step percentages
   - `theme.py` - Light/dark QSS themes and persistence
   - `engine_rules.py` - Qt-free decision logic for patch-gating and update-revert detection (unit-testable without a `QApplication`)
@@ -277,10 +280,16 @@ Both patches are located by byte signature, not hard-coded offsets, so they surv
 - `registry_handler.py` - Reads BlueStacks paths and versions from the Windows Registry
 - `constants.py` - Shared constants (keys, filenames, modes, process list, patch-mode version cutoff, `APP_VERSION`)
 - `admin.py` - UAC elevation helpers (relaunch as administrator, network-drive-safe)
-- `adb_handler.py` - Pushes and flashes a module `.zip` into a running instance over BlueStacks' bundled ADB (the app's one online operation)
+- `adb_handler.py` - Pushes/flashes a module `.zip`, and installs/removes the Magisk manager app, over BlueStacks' bundled ADB
 - `integrity_patch.py` / `root_persistence.py` - Engine patches (5.22+ integrity bypass, keep root enabled) with `.prepatch.bak` backups
 - `su_patch.py` / `su_patch_offline.py` - Patch-mode app root: flips the guest `su` `isDeveloperMode` gate inside `Data.vhdx` (bundled VHD/VHDX + ext4 reader, no ADB required)
 - `ext4_symlink.py` - Classic/MSI app root: adds `/system/xbin/su` in `Root.vhd` via bundled `debugfs` (`tools/e2fsprogs/`)
+- `magisk_system.py` - Offline Magisk-to-system install: stages the DATABIN into `Data.vhdx` and the `/system` footprint into `Root.vhd`, all via bundled `debugfs`
+- `magisk_payload.py` - Downloads and hash-verifies the latest Kyubi (Magisk) release APK, and extracts the native tools/assets `magisk_system.py` needs
+- `rezygisk_payload.py` - Downloads and hash-verifies the pinned ReZygisk module (standalone Zygisk for the emulator)
+- `lsposed_payload.py` - Downloads and hash-verifies the pinned LSPosed (Zygisk) module
+- `telemetry_block.py` - Null-routes ad/telemetry domains in an instance's guest hosts file, offline via `Root.vhd`
+- `magisk_assets/` - Version-pinned system-install assets (`config`, `bootanim.rc`, `bootanim.rc.gz`) bundled for the Magisk system-mode install
 
 ### Dependencies
 
