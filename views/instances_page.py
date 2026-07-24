@@ -48,11 +48,17 @@ class InstancesPage(QWidget):
 
         self.instance_container = QWidget()
         self.instance_layout = QGridLayout(self.instance_container)
-        self.instance_layout.setColumnStretch(0, 3)
-        self.instance_layout.setColumnStretch(1, 4)
-        self.instance_layout.setColumnStretch(2, 1)
-        self.instance_layout.setColumnStretch(3, 1)
-        self.instance_layout.setHorizontalSpacing(15)
+        # One wide name column plus two narrow state columns. The name used to be
+        # printed twice (checkbox text and a separate label), which ate the width
+        # that made everything else feel cramped; the id now lives in a tooltip.
+        self.instance_layout.setColumnStretch(0, 1)
+        self.instance_layout.setColumnStretch(1, 0)
+        self.instance_layout.setColumnStretch(2, 0)
+        self.instance_layout.setHorizontalSpacing(18)
+        self.instance_layout.setVerticalSpacing(4)
+        # Rows start at the top of the scroll area; without this the grid floats
+        # in the vertical middle once there are only a few instances.
+        self.instance_layout.setAlignment(Qt.AlignTop)
 
         self.instance_scroll_area.setWidget(self.instance_container)
         instance_group_layout.addWidget(self.instance_scroll_area)
@@ -101,25 +107,35 @@ class InstancesPage(QWidget):
                 item.widget().deleteLater()
         self.checkboxes = {}
 
-        for row, unique_id in enumerate(sorted(instance_data.keys())):
+        # Column headers, so "Root:" and "R/W:" aren't repeated on every row.
+        for col, title in ((0, "Instance"), (1, "Root"), (2, "R/W")):
+            header = QLabel(title)
+            header.setObjectName("InstanceHeader")
+            self.instance_layout.addWidget(header, 0, col)
+
+        for index, unique_id in enumerate(sorted(instance_data.keys())):
+            row = index + 1                      # row 0 is the header
             data = instance_data[unique_id]
-            checkbox = QCheckBox(unique_id)
-            checkbox.setChecked(unique_id in previous_selection)
             display_name = data.get("display_name", unique_id)
             root_on = bool(data.get("root_enabled"))
-            root_text = "On" if root_on else "Off"
-            rw_text = "On" if data.get("rw_mode") == constants.MODE_READWRITE else "Off"
+            rw_on = data.get("rw_mode") == constants.MODE_READWRITE
 
-            root_label = QLabel("Root: %s" % root_text)
-            if root_on:
-                root_label.setStyleSheet("background-color: green; color: white; padding: 2px;")
-            else:
-                root_label.setStyleSheet("padding: 2px;")
+            # The checkbox carries the readable name; the unique id (which repeats
+            # most of it) moves to the tooltip rather than a second column.
+            checkbox = QCheckBox(display_name)
+            checkbox.setChecked(unique_id in previous_selection)
+            checkbox.setToolTip(unique_id)
+
+            root_label = QLabel("On" if root_on else "Off")
+            # Styled by object name in the theme's QSS instead of a hard-coded
+            # colour, so it follows the light/dark palette like everything else.
+            root_label.setObjectName("RootOn" if root_on else "RootOff")
+            rw_label = QLabel("On" if rw_on else "Off")
+            rw_label.setObjectName("RwState")
 
             self.instance_layout.addWidget(checkbox, row, 0)
-            self.instance_layout.addWidget(QLabel(display_name), row, 1)
-            self.instance_layout.addWidget(root_label, row, 2)
-            self.instance_layout.addWidget(QLabel("R/W: %s" % rw_text), row, 3)
+            self.instance_layout.addWidget(root_label, row, 1)
+            self.instance_layout.addWidget(rw_label, row, 2)
             self.checkboxes[unique_id] = checkbox
 
     def selected_ids(self) -> list[str]:

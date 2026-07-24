@@ -94,13 +94,29 @@ def test_set_instances_shows_display_name_and_falls_back_to_unique_id(qtbot):
     }
     page.set_instances(data)
 
-    labels = [page.instance_layout.itemAt(i).widget() for i in range(page.instance_layout.count())]
-    texts = {w.text() for w in labels if isinstance(w, QLabel)}
-    assert "Main Farm Bot" in texts
-    assert "Pie64 (Normal)" in texts  # no display_name key -> falls back to unique_id
+    # The readable name is now the checkbox's own text; the unique id moved to
+    # its tooltip rather than being printed a second time in its own column.
+    assert page.checkboxes["Nougat64 (Normal)"].text() == "Main Farm Bot"
+    assert page.checkboxes["Nougat64 (Normal)"].toolTip() == "Nougat64 (Normal)"
+    # no display_name key -> falls back to the unique id
+    assert page.checkboxes["Pie64 (Normal)"].text() == "Pie64 (Normal)"
 
 
-def test_set_instances_highlights_rooted_instances_green(qtbot):
+def test_the_name_is_not_printed_twice(qtbot):
+    """The duplicate name column was what made the grid feel cramped."""
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_instances({"Tiramisu64 (Normal)": {
+        "root_enabled": True, "rw_mode": constants.MODE_READWRITE,
+        "display_name": "Tiramisu64"}})
+    texts = [w.text() for i in range(page.instance_layout.count())
+             if isinstance((w := page.instance_layout.itemAt(i).widget()), QLabel)]
+    assert not any("Tiramisu64" in t for t in texts), texts
+
+
+def test_root_state_is_themed_by_object_name_not_a_hardcoded_colour(qtbot):
+    """A hard-coded green ignored the light/dark palette."""
     page = InstancesPage()
     qtbot.addWidget(page)
     page.show()
@@ -110,13 +126,23 @@ def test_set_instances_highlights_rooted_instances_green(qtbot):
     }
     page.set_instances(data)
 
-    root_labels = {
-        w.text(): w for i in range(page.instance_layout.count())
+    names = {
+        w.objectName() for i in range(page.instance_layout.count())
         if isinstance((w := page.instance_layout.itemAt(i).widget()), QLabel)
-        and w.text().startswith("Root:")
     }
-    assert "green" in root_labels["Root: On"].styleSheet()
-    assert "green" not in root_labels["Root: Off"].styleSheet()
+    assert {"RootOn", "RootOff", "InstanceHeader"} <= names
+    styled = [w for i in range(page.instance_layout.count())
+              if isinstance((w := page.instance_layout.itemAt(i).widget()), QLabel)
+              and w.styleSheet()]
+    assert styled == [], "state colours belong in the theme QSS, not inline"
+
+
+def test_both_themes_style_the_root_state(qtbot):
+    from views import theme
+    for name in (theme.LIGHT, theme.DARK):
+        qss = theme.stylesheet_for(name)
+        for obj in ("InstanceHeader", "RootOn", "RootOff", "RwState"):
+            assert obj in qss, (name, obj)
 
 
 def test_set_instances_refresh_does_not_leak_widgets(qtbot):

@@ -17,6 +17,9 @@ QPushButton:hover { background-color: #f6f6f6; }
 QPushButton:checked { background-color: #005fb8; color: #ffffff; }
 QProgressBar { border: 1px solid rgba(0,0,0,0.13); border-radius: 3px; background: #eaeef2; }
 QProgressBar::chunk { background-color: #005fb8; border-radius: 3px; }
+QLabel#InstanceHeader { color: rgba(0,0,0,0.55); font-weight: 600; padding: 2px 0; }
+QLabel#RootOn { color: #0f7b0f; font-weight: 600; padding: 2px 0; }
+QLabel#RootOff, QLabel#RwState { color: rgba(0,0,0,0.55); padding: 2px 0; }
 """
 
 _DARK_QSS = """
@@ -26,6 +29,9 @@ QPushButton:hover { background-color: #303030; }
 QPushButton:checked { background-color: #60cdff; color: #0a0a0a; }
 QProgressBar { border: 1px solid rgba(255,255,255,0.11); border-radius: 3px; background: #262626; }
 QProgressBar::chunk { background-color: #60cdff; border-radius: 3px; }
+QLabel#InstanceHeader { color: rgba(255,255,255,0.55); font-weight: 600; padding: 2px 0; }
+QLabel#RootOn { color: #6ccb5f; font-weight: 600; padding: 2px 0; }
+QLabel#RootOff, QLabel#RwState { color: rgba(255,255,255,0.55); padding: 2px 0; }
 """
 
 _THEMES = {LIGHT: _LIGHT_QSS, DARK: _DARK_QSS}
