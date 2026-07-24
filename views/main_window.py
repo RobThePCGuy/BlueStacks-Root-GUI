@@ -196,6 +196,9 @@ class MainWindow(QWidget):
         self.magisk_page.install_lsposed_requested.connect(self.magisk_controller.handle_install_lsposed)
         self.privacy_page.block_requested.connect(self.privacy_controller.handle_block)
         self.privacy_page.unblock_requested.connect(self.privacy_controller.handle_unblock)
+        self.privacy_page.ads_off_requested.connect(self.privacy_controller.handle_ads_off)
+        self.privacy_page.ads_restore_requested.connect(self.privacy_controller.handle_ads_restore)
+        self.privacy_page.ads_lock_toggled.connect(self.privacy_controller.handle_ads_lock)
 
         self.setMinimumWidth(700)
         self.setMinimumHeight(480)
@@ -633,7 +636,8 @@ class MainWindow(QWidget):
                 self.magisk_page.install_button, self.magisk_page.uninstall_button,
                 self.magisk_page.manager_button, self.magisk_page.remove_manager_button,
                 self.magisk_page.rezygisk_button, self.magisk_page.lsposed_button,
-                self.privacy_page.block_button, self.privacy_page.unblock_button]
+                self.privacy_page.block_button, self.privacy_page.unblock_button,
+                self.privacy_page.ads_off_button, self.privacy_page.ads_restore_button]
 
     def _set_busy(self, busy):
         for b in self._action_buttons():

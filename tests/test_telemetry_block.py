@@ -9,10 +9,36 @@ import telemetry_block as tb
 
 def test_blocklist_is_nonempty_lowercase_domains():
     assert tb.BLOCKLIST
-    for d in tb.BLOCKLIST:
+    for d in tb.BLOCKLIST + tb.HOST_BLOCKLIST:
         assert d == d.lower() and " " not in d and "/" not in d
-    # the ad exchange caught in the live capture is in the list
-    assert "rtbhouse.net" in tb.BLOCKLIST
+
+
+def test_dead_rtbhouse_net_entry_is_gone():
+    """It never resolved; the live endpoint is esp.rtbhouse.com.
+
+    Compared by equality rather than ``in``: an entry has to be its own exact
+    hostname, so a substring sitting inside some longer domain cannot satisfy
+    this. (It also keeps CodeQL's incomplete-URL-sanitization rule quiet, which
+    cannot tell tuple membership from a substring check on a URL.)
+    """
+    assert not any(d == "rtbhouse.net" for d in tb.BLOCKLIST)
+    assert any(d == "rtbhouse.com" for d in tb.BLOCKLIST)
+    assert any(h == "esp.rtbhouse.com" for h in tb.HOST_BLOCKLIST)
+
+
+def test_subdomains_are_listed_explicitly_because_hosts_cannot_wildcard():
+    """An apex entry does not cover subdomains, and ad traffic is subdomains."""
+    hosts = tb.blocked_hosts()
+    for fqdn in ("cm.g.doubleclick.net",
+                 "pagead2.googlesyndication.com",
+                 "api.w.inmobi.com",
+                 "esp.rtbhouse.com"):
+        assert fqdn in hosts, fqdn
+
+
+def test_blocked_hosts_has_no_duplicates():
+    hosts = tb.blocked_hosts()
+    assert len(hosts) == len(set(hosts))
 
 
 def test_block_text_markers_and_null_routes():
@@ -21,6 +47,8 @@ def test_block_text_markers_and_null_routes():
     for d in tb.BLOCKLIST:
         assert "0.0.0.0 %s" % d in text
         assert "0.0.0.0 www.%s" % d in text  # www alias too
+    for h in tb.HOST_BLOCKLIST:
+        assert "0.0.0.0 %s" % h in text
     assert tb.has_block(text) is True
 
 
@@ -32,7 +60,7 @@ def test_strip_block_removes_only_the_marked_section():
     assert tb.has_block(stripped) is False
     # the user's real hosts entries survive
     assert "127.0.0.1\tlocalhost" in stripped
-    assert "rtbhouse.net" not in stripped
+    assert "doubleclick.net" not in stripped
 
 
 def test_apply_is_idempotent_no_double_block():
@@ -53,6 +81,6 @@ def test_state_sidecar_roundtrip(tmp_path):
     tb._write_state(str(tmp_path), True)
     st = tb.status(str(tmp_path))
     assert st["telemetry_block"] is True
-    assert st["domains"] == len(tb.BLOCKLIST)
+    assert st["domains"] == len(tb.blocked_hosts())
     tb._write_state(str(tmp_path), False)
     assert tb.status(str(tmp_path)) is None
