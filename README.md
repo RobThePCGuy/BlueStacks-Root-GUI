@@ -55,8 +55,7 @@ The window has five tabs down the left side. You'll only ever need the first two
 | Tab | What it's for |
 |-----|---------------|
 | **Dashboard** | Where BlueStacks was found, the engine-patch button, and how many instances are rooted. **Start here.** |
-| **Instances** | Your instances with live **Root** and **R/W** status. This is where you flip root on and off. |
-| **Magisk** | Full offline Magisk system-root install/uninstall per instance, plus the post-boot manager, ReZygisk, and LSPosed installs. More involved than basic rooting; optional. |
+| **Instances** | Your instances with live **Root**, **R/W** and **Magisk** status, and everything you do to one: Launch, Restart, R/W, and both ways to root. |
 | **Modules** | Push a Magisk module `.zip` into a running instance and flash it for you. Optional. |
 | **Privacy** | Turn BlueStacks' own ads and telemetry off (its config switches, all instances), and optionally block tracker domains inside one instance's guest hosts file. Both reversible. Optional. |
 
@@ -245,7 +244,7 @@ Both patches are located by byte signature rather than hard-coded offsets, so th
 
 ## Features
 
-- **Nav-Rail Layout**: A left navigation rail splits the app into five pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (per-instance root/R-W toggles), **Magisk** (full offline Magisk system-root install/uninstall, manager, ReZygisk, LSPosed), **Modules** (push and flash a Magisk module), and **Privacy** (turn BlueStacks' own ads/telemetry off, plus an in-guest tracker block). A light/dark theme toggle sits in the header
+- **Nav-Rail Layout**: A left navigation rail splits the app into four pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (every per-instance action: Launch/Restart, R/W, and both root methods), **Modules** (push and flash a Magisk module), and **Privacy** (turn BlueStacks' own ads/telemetry off, plus an in-guest tracker block). A light/dark theme toggle sits in the header
 - **Ad and Telemetry Removal**: Turns off BlueStacks' own advertising, promo, and stats-upload switches in `bluestacks.conf`. This is the part that actually stops the ads: they are served by `HD-Player.exe` on Windows, so nothing changed inside Android can reach them. Measured on 5.22.250.1015, the player's ad and tracker endpoints went from 40 to 0. The switches are found by pattern rather than a fixed list, so an update that renames or adds one is still covered; every original value is recorded for an exact restore, and an optional read-only pin stops BlueStacks turning the stats beacons back on. Reversible in one click
 - **Auto-Detection**: Discovers BlueStacks installation paths via the Windows Registry (Normal, China, and MSI editions) and picks the right rooting method per version automatically
 - **Instance Listing**: Lists every instance by its display name with live Root and R/W status (root shows a green highlight when on), including newer instances that use a single `Data.vhdx` layout (created or cloned), alongside the classic `fastboot.vdi`/`Root.vhd` ones
@@ -267,10 +266,9 @@ Both patches are located by byte signature rather than hard-coded offsets, so th
 - `main.py`: Application entry point and controller; wires the UI to the handlers and owns the background-thread orchestration
 - `views/`: PyQt5 UI package (nav-rail layout)
   - `main_window.py`: Main window; nav rail, page stack, worker threads, docked progress bar
-  - `nav_rail.py`: Left navigation rail (Dashboard / Instances / Magisk / Modules / Privacy)
+  - `nav_rail.py`: Left navigation rail (Dashboard / Instances / Modules / Privacy)
   - `dashboard_page.py`: Install paths, engine-patch button, update-revert alert, rooted-count stat
-  - `instances_page.py`: Instance grid, Toggle Root/R-W, patch-gating banner
-  - `magisk_page.py`: Full offline Magisk system-root install/uninstall per instance, plus the manager, ReZygisk, and LSPosed installs
+  - `instances_page.py`: Instance grid with Root/R-W/Magisk state, Launch/Restart, and both root methods in one Root group
   - `modules_page.py`: Pick a running instance, pick a module `.zip`, push and flash
   - `privacy_page.py`: Turn BlueStacks' own ads/telemetry off (global config switches), plus the per-instance in-guest tracker block
   - `progress.py`: Docked status/progress indicator with step percentages

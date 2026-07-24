@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from PyQt5.QtWidgets import QMessageBox
 
 from views.main_window import MainWindow
-from views.nav_rail import MAGISK as NAV_MAGISK
+from views.nav_rail import INSTANCES as NAV_INSTANCES
 
 # See test_main_window_gating for why constructing MainWindow in a test is safe
 # (initialize_paths_and_instances only fires under a running event loop).
@@ -20,22 +20,45 @@ def _one_instance(patch_mode=True, root_enabled=False):
 
 
 def _select(window, uid="Tiramisu64 (Normal)", status=None):
-    window.magisk_page.set_instances({uid: status})
-    window.magisk_page._radios[uid].setChecked(True)
+    """Tick exactly one instance: how a Magisk action is targeted now that
+    Instances and Magisk are one page."""
+    window.instances_page.set_instances(window.instance_data)
+    window.instances_page.set_magisk_statuses({uid: status})
+    window.instances_page.checkboxes[uid].setChecked(True)
 
 
-def test_navigate_to_magisk_populates_statuses(qtbot, monkeypatch):
+def test_navigate_to_instances_populates_magisk_statuses(qtbot, monkeypatch):
     window = MainWindow()
     qtbot.addWidget(window)
     window.instance_data = _one_instance()
+    window.instances_page.set_instances(window.instance_data)
     monkeypatch.setattr("magisk_system.magisk_status",
                         lambda path: {"magisk": True, "version": "27.001-kitsune",
                                       "components": ["system"]})
-    window.nav_rail.select(NAV_MAGISK)
-    assert window.magisk_page.selected_instance_id() is None
-    assert "Tiramisu64 (Normal)" in window.magisk_page._radios
-    window.magisk_page._radios["Tiramisu64 (Normal)"].setChecked(True)
-    assert window.magisk_page.uninstall_button.isEnabled() is True
+    window.nav_rail.select(NAV_INSTANCES)
+    # Nothing ticked yet, so no single instance is targeted.
+    assert window.instances_page.selected_instance_id() is None
+    assert "Tiramisu64 (Normal)" in window.instances_page.checkboxes
+    window.instances_page.checkboxes["Tiramisu64 (Normal)"].setChecked(True)
+    assert window.instances_page.uninstall_button.isEnabled() is True
+
+
+def test_magisk_actions_need_exactly_one_instance(qtbot):
+    """Ticking several is how bulk root works; Magisk acts on one at a time."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    window.instance_data["Pie64 (Normal)"] = dict(
+        window.instance_data["Tiramisu64 (Normal)"])
+    window.instances_page.set_instances(window.instance_data)
+    window.instances_page.set_magisk_statuses(
+        {"Tiramisu64 (Normal)": None, "Pie64 (Normal)": None})
+    for cb in window.instances_page.checkboxes.values():
+        cb.setChecked(True)
+    assert window.instances_page.selected_instance_id() is None
+    assert window.instances_page.install_button.isEnabled() is False
+    # bulk actions stay available with several ticked
+    assert window.instances_page.root_toggle_button.isEnabled() is True
 
 
 def test_install_blocked_when_patch_mode_engine_unpatched(qtbot, monkeypatch):

@@ -71,6 +71,9 @@ def test_clicking_toggle_root_emits_signal(qtbot):
     page = InstancesPage()
     qtbot.addWidget(page)
     page.show()
+    page.set_instances({"Pie64 (Normal)": {"root_enabled": False,
+                                           "rw_mode": constants.MODE_READONLY}})
+    page.checkboxes["Pie64 (Normal)"].setChecked(True)
     with qtbot.waitSignal(page.toggle_root_requested, timeout=1000):
         qtbot.mouseClick(page.root_toggle_button, Qt.LeftButton)
 
@@ -157,11 +160,72 @@ def test_set_instances_refresh_does_not_leak_widgets(qtbot):
     assert page.instance_layout.count() == count_after_first
 
 
+def _one_ticked(page, uid="Pie64 (Normal)"):
+    page.set_instances({uid: {"root_enabled": False,
+                              "rw_mode": constants.MODE_READONLY}})
+    page.checkboxes[uid].setChecked(True)
+
+
 def test_launch_and_restart_buttons_emit_signals(qtbot):
     page = InstancesPage()
     qtbot.addWidget(page)
     page.show()
+    _one_ticked(page)
     with qtbot.waitSignal(page.launch_requested, timeout=1000):
         qtbot.mouseClick(page.launch_button, Qt.LeftButton)
     with qtbot.waitSignal(page.restart_requested, timeout=1000):
         qtbot.mouseClick(page.restart_button, Qt.LeftButton)
+
+
+def test_actions_are_disabled_until_something_is_ticked(qtbot):
+    """They used to be clickable and then complain in a dialog; now the page
+    says what to do and the buttons wait."""
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_instances({"Pie64 (Normal)": {"root_enabled": False,
+                                           "rw_mode": constants.MODE_READONLY}})
+    assert page.root_toggle_button.isEnabled() is False
+    assert page.launch_button.isEnabled() is False
+    assert "tick one instance" in page.hint_label.text().lower()
+
+    page.checkboxes["Pie64 (Normal)"].setChecked(True)
+    assert page.root_toggle_button.isEnabled() is True
+    assert page.launch_button.isEnabled() is True
+
+
+def test_root_column_names_the_method_in_use(qtbot):
+    """The whole reason the pages merged: app root and Magisk are alternatives,
+    so a single column has to say which one an instance is using."""
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_instances({
+        "AppRooted (Normal)": {"root_enabled": True, "rw_mode": constants.MODE_READONLY},
+        "MagiskRooted (Normal)": {"root_enabled": False, "rw_mode": constants.MODE_READONLY},
+        "Both (Normal)": {"root_enabled": True, "rw_mode": constants.MODE_READONLY},
+        "Neither (Normal)": {"root_enabled": False, "rw_mode": constants.MODE_READONLY},
+    })
+    page.set_magisk_statuses({
+        "MagiskRooted (Normal)": {"magisk": True, "components": ["system"]},
+        "Both (Normal)": {"magisk": True, "components": ["system"]},
+    })
+    texts = [w.text() for i in range(page.instance_layout.count())
+             if isinstance((w := page.instance_layout.itemAt(i).widget()), QLabel)]
+    assert "App" in texts
+    assert "Magisk" in texts
+    assert "App + Magisk" in texts      # the conflicting state is named
+    assert "Off" in texts
+
+
+def test_conflicting_root_methods_are_called_out(qtbot):
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_instances({"Both (Normal)": {"root_enabled": True,
+                                          "rw_mode": constants.MODE_READONLY}})
+    page.set_magisk_statuses({"Both (Normal)": {"magisk": True,
+                                                "components": ["system"]}})
+    page.checkboxes["Both (Normal)"].setChecked(True)
+    hint = page.hint_label.text().lower()
+    assert "both provide su" in hint and "turn app root off" in hint

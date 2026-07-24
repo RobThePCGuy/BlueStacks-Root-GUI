@@ -35,14 +35,14 @@ class MagiskController:
         w = self._window
         statuses = {uid: magisk_system.magisk_status(data["data_path"])
                     for uid, data in w.instance_data.items()}
-        w.magisk_page.set_instances(statuses)
+        w.instances_page.set_magisk_statuses(statuses)
 
     def _selected_instance(self):
         w = self._window
-        uid = w.magisk_page.selected_instance_id()
+        uid = w.instances_page.selected_instance_id()
         if not uid or uid not in w.instance_data:
             QMessageBox.information(w, "No instance selected",
-                                    "Select an instance on the Magisk tab first.")
+                                    "Tick exactly one instance on the Instances tab first.")
             return None, None
         return uid, w.instance_data[uid]
 

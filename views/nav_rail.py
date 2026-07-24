@@ -1,4 +1,9 @@
-"""Left navigation rail: Dashboard / Instances / Magisk / Modules / Privacy."""
+"""Left navigation rail: Dashboard / Instances / Modules / Privacy.
+
+Magisk used to be its own destination. It is part of Instances now: root
+is one decision per instance, and splitting it across two tabs hid that
+app root and Magisk are alternatives that conflict.
+"""
 from __future__ import annotations
 
 from PyQt5.QtCore import pyqtSignal

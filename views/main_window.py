@@ -28,11 +28,10 @@ import admin
 
 from views.nav_rail import (
     NavRail, DASHBOARD as NAV_DASHBOARD, INSTANCES as NAV_INSTANCES,
-    MAGISK as NAV_MAGISK, MODULES as NAV_MODULES, PRIVACY as NAV_PRIVACY,
+    MODULES as NAV_MODULES, PRIVACY as NAV_PRIVACY,
 )
 from views.dashboard_page import DashboardPage
 from views.instances_page import InstancesPage
-from views.magisk_page import MagiskPage
 from views.magisk_controller import MagiskController
 from views.modules_page import ModulesPage
 from views.privacy_page import PrivacyPage
@@ -153,18 +152,15 @@ class MainWindow(QWidget):
         self.pages = QStackedWidget()
         self.dashboard_page = DashboardPage()
         self.instances_page = InstancesPage()
-        self.magisk_page = MagiskPage()
         self.modules_page = ModulesPage()
         self.privacy_page = PrivacyPage()
         self.pages.addWidget(self.dashboard_page)
         self.pages.addWidget(self.instances_page)
-        self.pages.addWidget(self.magisk_page)
         self.pages.addWidget(self.modules_page)
         self.pages.addWidget(self.privacy_page)
         self._pages_by_key = {
             NAV_DASHBOARD: self.dashboard_page,
             NAV_INSTANCES: self.instances_page,
-            NAV_MAGISK: self.magisk_page,
             NAV_MODULES: self.modules_page,
             NAV_PRIVACY: self.privacy_page,
         }
@@ -189,12 +185,12 @@ class MainWindow(QWidget):
             lambda: self.nav_rail.select(NAV_DASHBOARD))
         self.modules_page.browse_zip_requested.connect(self._handle_browse_zip)
         self.modules_page.push_requested.connect(self._handle_push_module)
-        self.magisk_page.install_requested.connect(self.magisk_controller.handle_install)
-        self.magisk_page.uninstall_requested.connect(self.magisk_controller.handle_uninstall)
-        self.magisk_page.install_manager_requested.connect(self.magisk_controller.handle_install_manager)
-        self.magisk_page.uninstall_manager_requested.connect(self.magisk_controller.handle_uninstall_manager)
-        self.magisk_page.install_rezygisk_requested.connect(self.magisk_controller.handle_install_rezygisk)
-        self.magisk_page.install_lsposed_requested.connect(self.magisk_controller.handle_install_lsposed)
+        self.instances_page.install_requested.connect(self.magisk_controller.handle_install)
+        self.instances_page.uninstall_requested.connect(self.magisk_controller.handle_uninstall)
+        self.instances_page.install_manager_requested.connect(self.magisk_controller.handle_install_manager)
+        self.instances_page.uninstall_manager_requested.connect(self.magisk_controller.handle_uninstall_manager)
+        self.instances_page.install_rezygisk_requested.connect(self.magisk_controller.handle_install_rezygisk)
+        self.instances_page.install_lsposed_requested.connect(self.magisk_controller.handle_install_lsposed)
         self.privacy_page.block_requested.connect(self.privacy_controller.handle_block)
         self.privacy_page.unblock_requested.connect(self.privacy_controller.handle_unblock)
         self.privacy_page.ads_off_requested.connect(self.privacy_controller.handle_ads_off)
@@ -208,7 +204,7 @@ class MainWindow(QWidget):
         self.pages.setCurrentWidget(self._pages_by_key[key])
         if key == NAV_MODULES:
             self._refresh_running_instances()
-        elif key == NAV_MAGISK:
+        elif key == NAV_INSTANCES:
             self.magisk_controller.refresh_statuses()
         elif key == NAV_PRIVACY:
             self.privacy_controller.refresh_statuses()
@@ -634,9 +630,9 @@ class MainWindow(QWidget):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
                 self.instances_page.launch_button, self.instances_page.restart_button,
                 self.dashboard_page.engine_button, self.modules_page.push_button,
-                self.magisk_page.install_button, self.magisk_page.uninstall_button,
-                self.magisk_page.manager_button, self.magisk_page.remove_manager_button,
-                self.magisk_page.rezygisk_button, self.magisk_page.lsposed_button,
+                self.instances_page.install_button, self.instances_page.uninstall_button,
+                self.instances_page.manager_button, self.instances_page.remove_manager_button,
+                self.instances_page.rezygisk_button, self.instances_page.lsposed_button,
                 self.privacy_page.block_button, self.privacy_page.unblock_button,
                 self.privacy_page.ads_off_button, self.privacy_page.ads_restore_button]
 
@@ -647,7 +643,7 @@ class MainWindow(QWidget):
         # every selection change, so they need the busy flag explicitly or they
         # would re-enable themselves mid-operation.
         self.modules_page.set_busy(busy)
-        self.magisk_page.set_busy(busy)
+        self.instances_page.set_busy(busy)
         self.privacy_page.set_busy(busy)
         if busy:
             self.status_refresh_timer.stop()
@@ -713,7 +709,7 @@ class MainWindow(QWidget):
         self._last_engine_state = state
         if self.nav_rail.current() == NAV_MODULES:
             self._refresh_running_instances()
-        elif self.nav_rail.current() == NAV_MAGISK:
+        elif self.nav_rail.current() == NAV_INSTANCES:
             self.magisk_controller.refresh_statuses()
         elif self.nav_rail.current() == NAV_PRIVACY:
             self.privacy_controller.refresh_statuses()
