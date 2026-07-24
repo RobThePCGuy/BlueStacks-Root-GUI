@@ -27,6 +27,8 @@ class InstancesPage(QWidget):
         )
         self.banner_label.setWordWrap(True)
         self.banner_fix_button = QPushButton("Fix it")
+        self.banner_fix_button.setToolTip(
+            "Opens the Dashboard, where the engine patch is applied.")
         self.banner_fix_button.clicked.connect(self.go_to_dashboard_requested.emit)
         banner_row = QHBoxLayout()
         banner_row.addWidget(self.banner_label, 1)
@@ -58,8 +60,14 @@ class InstancesPage(QWidget):
 
         button_row = QHBoxLayout()
         self.root_toggle_button = QPushButton("Toggle Root")
+        self.root_toggle_button.setToolTip(
+            "Turns root on or off for the ticked instances. Closes BlueStacks "
+            "first; start them again afterwards.")
         self.root_toggle_button.clicked.connect(self.toggle_root_requested.emit)
         self.rw_toggle_button = QPushButton("Toggle R/W")
+        self.rw_toggle_button.setToolTip(
+            "Switches the ticked instances' disks between read-only and "
+            "writable, so the system partition can be modified.")
         self.rw_toggle_button.clicked.connect(self.toggle_rw_requested.emit)
         self.launch_button = QPushButton("Launch")
         self.launch_button.setToolTip("Start the selected instance (HD-Player).")

@@ -25,6 +25,9 @@ class DashboardPage(QWidget):
         self.alert_label.setWordWrap(True)
         self.alert_label.setObjectName("UpdateRevertedAlert")
         self.repatch_button = QPushButton("Re-patch now")
+        self.repatch_button.setToolTip(
+            "Re-applies the engine patch that the BlueStacks update removed, "
+            "so rooted instances boot again.")
         self.repatch_button.clicked.connect(self.repatch_requested.emit)
         layout.addWidget(self.alert_label)
         layout.addWidget(self.repatch_button)

@@ -33,17 +33,6 @@ class PrivacyPage(QWidget):
     _EMPTY_TEXT = ("No instances detected yet. They appear here once BlueStacks "
                    "and its instances are found.")
     _PROMPT_TEXT = "Select an instance to see its tracker-block status."
-    _ADS_NOTE = (
-        "Turns off BlueStacks' own advertising and stats-upload switches in its "
-        "config. This is what actually stops the ads, and it applies to every "
-        "instance. Close BlueStacks first, since it rewrites the file on exit."
-    )
-    _NOTE = (
-        "Null-routes tracker domains in the guest hosts file, offline, for apps "
-        "running inside the emulator. Emulator only (never your Windows machine) "
-        "and reversible. It does not affect BlueStacks' own ads, which are served "
-        "by the Windows player: use the control above for those."
-    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -76,16 +65,11 @@ class PrivacyPage(QWidget):
         self.ads_lock_check = QCheckBox(
             "Pin the config so BlueStacks cannot turn them back on")
         self.ads_lock_check.setToolTip(
-            "Marks bluestacks.conf read-only. BlueStacks puts some switches back "
-            "on every start, mostly the stats beacons. Pinning holds them, but "
-            "it also stops BlueStacks saving its own settings changes.")
+            "Marks the config read-only so BlueStacks cannot revert the switches. "
+            "It also stops BlueStacks saving its own settings.")
         self.ads_lock_check.toggled.connect(self._on_lock_toggled)
         ads_layout.addWidget(self.ads_lock_check)
 
-        ads_note = QLabel(self._ADS_NOTE)
-        ads_note.setWordWrap(True)
-        ads_note.setObjectName("PrivacyNote")
-        ads_layout.addWidget(ads_note)
         layout.addWidget(ads_box)
 
         # --- per instance: guest hosts block ---------------------------------
@@ -120,10 +104,6 @@ class PrivacyPage(QWidget):
         button_row.addWidget(self.unblock_button)
         guest_layout.addLayout(button_row)
 
-        note = QLabel(self._NOTE)
-        note.setWordWrap(True)
-        note.setObjectName("PrivacyNote")
-        guest_layout.addWidget(note)
         layout.addWidget(guest_box)
         layout.addStretch(1)
 
@@ -154,24 +134,43 @@ class PrivacyPage(QWidget):
         self._update()
 
     def _ads_status_text(self) -> str:
+        """The visible line: state only. The why lives in :meth:`_ads_status_tip`."""
         st = self._ads_status
         if not st:
             if not self._ads_total:
-                return ("BlueStacks ad settings: no switches found in this build. "
-                        "Nothing to turn off here.")
-            return ("BlueStacks ads and telemetry are ON (%d switches available)."
-                    % self._ads_total)
+                return "Ads and telemetry: no switches in this build"
+            return "Ads and telemetry: on (%d switches)" % self._ads_total
+        off = len(st.get("off") or [])
+        total = st.get("keys", 0)
         reverted = st.get("reverted") or []
-        text = "BlueStacks ads and telemetry are OFF (%d switches)." % st.get("keys", 0)
         if reverted:
-            text += (" BlueStacks has turned %d back on since, mostly stats "
-                     "beacons. Turn them off again, or pin the config to hold them."
-                     % len(reverted))
+            return "Ads and telemetry: off, %d of %d reverted by BlueStacks" % (
+                len(reverted), total)
+        if st.get("unmanaged"):
+            return "Ads and telemetry: off, new switches available"
+        return "Ads and telemetry: off (%d of %d)" % (off, total)
+
+    def _ads_status_tip(self) -> str:
+        st = self._ads_status
+        if not st:
+            if not self._ads_total:
+                return ("This BlueStacks build exposes no ad or telemetry switches, "
+                        "so there is nothing to turn off.")
+            return ("BlueStacks' own advertising and stats uploads are enabled. "
+                    "Turning them off applies to every instance.")
+        parts = ["Every ad, promo and stats-upload switch found in bluestacks.conf "
+                 "is off. Originals are recorded, so restoring is exact."]
+        reverted = st.get("reverted") or []
+        if reverted:
+            parts.append(
+                "BlueStacks has turned %d back on since, mostly stats beacons: %s. "
+                "Turn them off again, or pin the config to hold them."
+                % (len(reverted), ", ".join(reverted[:6])))
         unmanaged = st.get("unmanaged") or []
         if unmanaged:
-            text += (" This BlueStacks build added %d new switch(es); turning off "
-                     "again will cover them." % len(unmanaged))
-        return text
+            parts.append("This build added %d switch(es) not covered yet; turning "
+                         "off again adopts them." % len(unmanaged))
+        return "\n\n".join(parts)
 
     # --- per-instance guest block -------------------------------------------
 
@@ -217,8 +216,8 @@ class PrivacyPage(QWidget):
             return self._PROMPT_TEXT
         st = self._statuses.get(uid)
         if not st:
-            return "%s: no telemetry block applied." % uid
-        return "%s: blocking %s tracker domains in-guest." % (uid, st.get("domains", "?"))
+            return "%s: no tracker block applied" % uid
+        return "%s: blocking %s tracker hostnames" % (uid, st.get("domains", "?"))
 
     def _update(self, *_args) -> None:
         busy = self._busy
@@ -231,6 +230,7 @@ class PrivacyPage(QWidget):
         unmanaged = bool(applied and self._ads_status.get("unmanaged"))
         show_off = has_switches and (not applied or reverted or unmanaged)
         self.ads_status_label.setText(self._ads_status_text())
+        self.ads_status_label.setToolTip(self._ads_status_tip())
         self.ads_off_button.setVisible(show_off)
         self.ads_off_button.setEnabled(show_off and not busy)
         self.ads_restore_button.setVisible(applied)

@@ -137,6 +137,7 @@ class MainWindow(QWidget):
         toolbar.setContentsMargins(8, 6, 8, 6)
         toolbar.addStretch(1)
         self.theme_button = QPushButton("Toggle theme")
+        self.theme_button.setToolTip("Switches between the light and dark theme.")
         self.theme_button.clicked.connect(self._handle_toggle_theme)
         toolbar.addWidget(self.theme_button)
         root_layout.addLayout(toolbar)

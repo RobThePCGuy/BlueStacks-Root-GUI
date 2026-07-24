@@ -33,11 +33,16 @@ class ModulesPage(QWidget):
         self.zip_label = QLabel("No file chosen")
         self.zip_label.setWordWrap(True)
         self.browse_button = QPushButton("Browse...")
+        self.browse_button.setToolTip(
+            "Pick a Magisk module .zip from your PC.")
         self.browse_button.clicked.connect(self.browse_zip_requested.emit)
         layout.addWidget(self.zip_label)
         layout.addWidget(self.browse_button)
 
         self.push_button = QPushButton("Push and flash module")
+        self.push_button.setToolTip(
+            "Copies the module into the running instance and flashes it with "
+            "Magisk. Close and reopen the instance to activate it.")
         self.push_button.clicked.connect(self.push_requested.emit)
         self.push_button.setEnabled(False)
         layout.addWidget(self.push_button)

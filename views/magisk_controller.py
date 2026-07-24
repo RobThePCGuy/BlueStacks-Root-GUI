@@ -74,7 +74,11 @@ class MagiskController:
                 "<b>Install manager app</b>.</p>"
                 "<p>All instances of this Android version share one master "
                 "Root.vhd: installing here roots every clone of it, not just "
-                "%s.</p>" % uid + app_root_note):
+                "%s.</p>"
+                "<p>This gives you root, Zygisk, and Xposed. It does not give "
+                "you Play Integrity: Google limits emulator integrity to its own "
+                "Google Play Games, so apps that gate on it stay broken.</p>"
+                % uid + app_root_note):
             return
         data_path = instance["data_path"]
 

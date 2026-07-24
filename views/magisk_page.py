@@ -9,10 +9,10 @@ app over ADB.
 """
 from __future__ import annotations
 
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup,
-    QPushButton, QToolButton,
+    QPushButton,
 )
 
 
@@ -36,21 +36,6 @@ class MagiskPage(QWidget):
     _HINT_MODULES = ("Next: install ReZygisk, then LSPosed, then Restart the "
                      "instance once from the Instances tab to activate them.")
 
-    # The caveats, tucked behind "Details" so they are there when wanted and out
-    # of the way otherwise.
-    _DETAILS = (
-        "Modules: install ReZygisk before LSPosed, since LSPosed needs Zygisk. "
-        "Flash both, then restart once to activate them. Installing them one at "
-        "a time with a restart between is the safe fallback if a flash acts up.\n\n"
-        "Play Integrity does not pass on BlueStacks. Google limits emulator "
-        "integrity to its own Google Play Games, so apps that gate on it "
-        "(banking, some games) stay broken with or without these modules. You "
-        "get root, Zygisk, and Xposed, not integrity.\n\n"
-        "Shared system image: all instances of the same Android version share one "
-        "master Root.vhd. Installing or uninstalling Magisk affects every instance "
-        "on that version, not just the selected one. Uninstalling from one clone "
-        "removes root from its siblings too."
-    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,30 +58,30 @@ class MagiskPage(QWidget):
 
         button_row = QHBoxLayout()
         self.install_button = QPushButton("Install Magisk")
-        self.install_button.setToolTip("Full offline Magisk system-root install (instance shut down).")
+        self.install_button.setToolTip(
+            "Offline Magisk system-root install, with the instance shut down.")
         self.install_button.clicked.connect(self.install_requested.emit)
         self.uninstall_button = QPushButton("Uninstall Magisk")
+        self.uninstall_button.setToolTip(
+            "Removes Magisk and restores the stock system image.")
         self.uninstall_button.clicked.connect(self.uninstall_requested.emit)
         self.manager_button = QPushButton("Install manager")
         self.manager_button.setToolTip(
-            "Installs the Magisk manager app over ADB. Start the instance and "
-            "enable ADB (Settings → Advanced) first.")
+            "Installs the Magisk app over ADB. Start the instance and enable ADB "
+            "in its Settings, Advanced, first.")
         self.manager_button.clicked.connect(self.install_manager_requested.emit)
         self.remove_manager_button = QPushButton("Remove manager")
         self.remove_manager_button.setToolTip(
-            "Uninstalls the Magisk manager app over ADB. Leaves the system root "
-            "in place.")
+            "Uninstalls the Magisk app. Leaves the system root in place.")
         self.remove_manager_button.clicked.connect(self.uninstall_manager_requested.emit)
         self.rezygisk_button = QPushButton("Install ReZygisk")
         self.rezygisk_button.setToolTip(
-            "ReZygisk = Zygisk, required by Zygisk modules. Flashes over ADB; "
-            "close and reopen the instance afterward. Install this before LSPosed.")
+            "Adds Zygisk, which Zygisk modules need. Install this before LSPosed.")
         self.rezygisk_button.clicked.connect(self.install_rezygisk_requested.emit)
         self.lsposed_button = QPushButton("Install LSPosed")
         self.lsposed_button.setToolTip(
-            "LSPosed = the Xposed framework (needs ReZygisk first). Flash it after "
-            "ReZygisk and a restart; close/reopen again after. Manage modules from "
-            "the LSPosed app.")
+            "The Xposed framework; needs ReZygisk first. Manage its modules from "
+            "the LSPosed app once the instance restarts.")
         self.lsposed_button.clicked.connect(self.install_lsposed_requested.emit)
         for _b in (self.install_button, self.uninstall_button, self.manager_button,
                    self.remove_manager_button, self.rezygisk_button, self.lsposed_button):
@@ -107,21 +92,6 @@ class MagiskPage(QWidget):
         self.hint_label.setWordWrap(True)
         self.hint_label.setObjectName("MagiskHint")
         layout.addWidget(self.hint_label)
-
-        self.details_toggle = QToolButton()
-        self.details_toggle.setText("Details")
-        self.details_toggle.setCheckable(True)
-        self.details_toggle.setArrowType(Qt.RightArrow)
-        self.details_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.details_toggle.setAutoRaise(True)
-        self.details_toggle.toggled.connect(self._toggle_details)
-        layout.addWidget(self.details_toggle, alignment=Qt.AlignLeft)
-
-        self.details_label = QLabel(self._DETAILS)
-        self.details_label.setWordWrap(True)
-        self.details_label.setObjectName("MagiskDetails")
-        self.details_label.hide()
-        layout.addWidget(self.details_label)
 
         layout.addStretch(1)
 
@@ -172,10 +142,6 @@ class MagiskPage(QWidget):
 
     def selected_status(self) -> dict | None:
         return self._statuses.get(self.selected_instance_id())
-
-    def _toggle_details(self, on: bool) -> None:
-        self.details_toggle.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
-        self.details_label.setVisible(on)
 
     def _status_text(self, uid) -> str:
         if uid is None:
