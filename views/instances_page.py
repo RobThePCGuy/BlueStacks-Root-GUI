@@ -222,14 +222,14 @@ class InstancesPage(QWidget):
         for index, unique_id in enumerate(sorted(self._instance_data.keys())):
             row = index + 1                      # row 0 is the header
             data = self._instance_data[unique_id]
-            display_name = data.get("display_name", unique_id)
             app_root = bool(data.get("root_enabled"))
             rw_on = data.get("rw_mode") == constants.MODE_READWRITE
             magisk = self._magisk.get(unique_id)
 
-            # The checkbox carries the readable name; the unique id (which repeats
-            # most of it) moves to the tooltip rather than a second column.
-            checkbox = QCheckBox(display_name)
+            # Lead with the engine name, which is unique and stable. A display
+            # name only earns a place when the user renamed it from BlueStacks'
+            # generic default; otherwise every instance would read the same.
+            checkbox = QCheckBox(self._row_label(unique_id, data))
             checkbox.setChecked(unique_id in selected)
             checkbox.setToolTip(unique_id)
             checkbox.toggled.connect(self._update)
@@ -254,6 +254,14 @@ class InstancesPage(QWidget):
             self.instance_layout.addWidget(rw_label, row, 2)
             self.instance_layout.addWidget(magisk_label, row, 3)
             self.checkboxes[unique_id] = checkbox
+
+    @staticmethod
+    def _row_label(unique_id: str, data: dict) -> str:
+        name = data.get("original_name") or unique_id
+        display = (data.get("display_name") or "").strip()
+        if display and display != name and display not in constants.GENERIC_DISPLAY_NAMES:
+            return "%s  ·  %s" % (name, display)   # "Tiramisu64 · My Bot"
+        return name
 
     @staticmethod
     def _root_text(app_root: bool, magisk: dict | None) -> str:

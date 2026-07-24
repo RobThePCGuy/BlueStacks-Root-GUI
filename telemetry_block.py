@@ -143,9 +143,28 @@ HOST_BLOCKLIST = (
 )
 
 
+def _sidecar_dir(instance_dir: str) -> str:
+    """Where the block's backup + state sidecar live.
+
+    The block is written into ``Root.vhd``, which BlueStacks shares across every
+    instance of one Android version, so there is really one block per version,
+    not one per instance. The sidecar therefore lives next to that shared
+    ``Root.vhd`` rather than in a single instance's folder: every instance that
+    boots from the same image then reports the same block state, instead of a
+    clone claiming "not blocked" while it is in fact blocked. Falls back to the
+    instance folder when the ``Root.vhd`` can't be resolved (e.g. a clone whose
+    master is missing), which keeps :func:`status` safe to call on anything.
+    """
+    try:
+        return os.path.dirname(_ms._resolve_root_vhd(instance_dir))
+    except (RuntimeError, OSError):
+        return instance_dir
+
+
 def _instance_paths(instance_dir: str) -> tuple[str, str]:
-    return (os.path.join(instance_dir, _BACKUP_NAME),
-            os.path.join(instance_dir, _STATE_NAME))
+    base = _sidecar_dir(instance_dir)
+    return (os.path.join(base, _BACKUP_NAME),
+            os.path.join(base, _STATE_NAME))
 
 
 def blocked_hosts() -> tuple[str, ...]:

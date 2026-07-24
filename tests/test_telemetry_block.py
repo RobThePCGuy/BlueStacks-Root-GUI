@@ -84,3 +84,34 @@ def test_state_sidecar_roundtrip(tmp_path):
     assert st["domains"] == len(tb.blocked_hosts())
     tb._write_state(str(tmp_path), False)
     assert tb.status(str(tmp_path)) is None
+
+
+def test_status_is_shared_across_instances_of_one_android_version(tmp_path, monkeypatch):
+    """The block lives in the shared Root.vhd, so a clone must not report "not
+    blocked" while its master (same image) is blocked."""
+    master = tmp_path / "Tiramisu64"
+    clone = tmp_path / "Tiramisu64_2"
+    master.mkdir()
+    clone.mkdir()
+    root_vhd = master / "Root.vhd"
+    root_vhd.write_bytes(b"")
+
+    # Both instances resolve to the master's Root.vhd (the clone has none).
+    monkeypatch.setattr(tb._ms, "_resolve_root_vhd", lambda _dir: str(root_vhd))
+
+    # Applying via one instance is visible from the other.
+    tb._write_state(str(master), True)
+    assert tb.status(str(master))["telemetry_block"] is True
+    assert tb.status(str(clone))["telemetry_block"] is True
+
+    tb._write_state(str(master), False)
+    assert tb.status(str(clone)) is None
+
+
+def test_sidecar_falls_back_to_instance_dir_without_a_root_vhd(tmp_path, monkeypatch):
+    def _boom(_dir):
+        raise RuntimeError("no Root.vhd")
+
+    monkeypatch.setattr(tb._ms, "_resolve_root_vhd", _boom)
+    tb._write_state(str(tmp_path), True)               # must not raise
+    assert tb.status(str(tmp_path))["telemetry_block"] is True

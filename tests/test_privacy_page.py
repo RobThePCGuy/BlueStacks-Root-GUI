@@ -108,7 +108,7 @@ def test_the_visible_line_stays_short_and_the_detail_is_a_tooltip(qtbot):
     tip = page.ads_status_label.toolTip()
     assert len(label) <= 80, label
     assert "bst.feature.nowbux" in tip          # the specifics live here
-    assert "pin the config" in tip.lower()      # and so does the remedy
+    assert "lock the config" in tip.lower()     # and so does the remedy
     assert "bst.feature.nowbux" not in label    # never on the page itself
 
 

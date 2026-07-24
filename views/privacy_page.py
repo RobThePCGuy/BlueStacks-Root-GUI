@@ -63,10 +63,11 @@ class PrivacyPage(QWidget):
         ads_layout.addLayout(ads_row)
 
         self.ads_lock_check = QCheckBox(
-            "Pin the config so BlueStacks cannot turn them back on")
+            "Lock the config file so BlueStacks can't turn them back on")
         self.ads_lock_check.setToolTip(
-            "Marks the config read-only so BlueStacks cannot revert the switches. "
-            "It also stops BlueStacks saving its own settings.")
+            "Sets bluestacks.conf read-only so the switches can't be reverted. "
+            "It also blocks BlueStacks' own settings, so unlock before changing "
+            "them.")
         self.ads_lock_check.toggled.connect(self._on_lock_toggled)
         ads_layout.addWidget(self.ads_lock_check)
 
@@ -164,7 +165,7 @@ class PrivacyPage(QWidget):
         if reverted:
             parts.append(
                 "BlueStacks has turned %d back on since, mostly stats beacons: %s. "
-                "Turn them off again, or pin the config to hold them."
+                "Turn them off again, or lock the config file to hold them."
                 % (len(reverted), ", ".join(reverted[:6])))
         unmanaged = st.get("unmanaged") or []
         if unmanaged:

@@ -6,6 +6,10 @@ import re
 INSTANCE_PREFIX = "bst.instance."
 ENABLE_ROOT_KEY = ".enable_root_access"
 DISPLAY_NAME_KEY = ".display_name"
+# BlueStacks names every new instance this by default, so it does not identify
+# one: the engine name (Tiramisu64, Pie64) is what actually distinguishes them.
+# A display name is only worth showing when the user has changed it from this.
+GENERIC_DISPLAY_NAMES = frozenset({"BlueStacks App Player"})
 FEATURE_ROOTING_KEY = "bst.feature.rooting"
 BLUESTACKS_CONF_FILENAME = "bluestacks.conf"
 

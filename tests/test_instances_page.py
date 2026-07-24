@@ -86,23 +86,33 @@ def test_clicking_fix_it_emits_go_to_dashboard(qtbot):
         qtbot.mouseClick(page.banner_fix_button, Qt.LeftButton)
 
 
-def test_set_instances_shows_display_name_and_falls_back_to_unique_id(qtbot):
+def test_row_leads_with_the_engine_name_not_the_display_name(qtbot):
+    """The engine name identifies an instance; a display name is a bonus. The
+    generic default "BlueStacks App Player" must never stand in for the name."""
     page = InstancesPage()
     qtbot.addWidget(page)
     page.show()
     data = {
-        "Nougat64 (Normal)": {"root_enabled": True, "rw_mode": constants.MODE_READWRITE,
-                               "display_name": "Main Farm Bot"},
-        "Pie64 (Normal)": {"root_enabled": False, "rw_mode": constants.MODE_READWRITE},
+        # renamed by the user -> engine name plus the custom name
+        "Nougat64 (Normal)": {"original_name": "Nougat64", "display_name": "Main Farm Bot",
+                              "root_enabled": True, "rw_mode": constants.MODE_READWRITE},
+        # BlueStacks' generic default -> engine name only
+        "Tiramisu64 (Normal)": {"original_name": "Tiramisu64",
+                                "display_name": "BlueStacks App Player",
+                                "root_enabled": False, "rw_mode": constants.MODE_READWRITE},
+        # no display name at all -> engine name only
+        "Pie64 (Normal)": {"original_name": "Pie64",
+                           "root_enabled": False, "rw_mode": constants.MODE_READWRITE},
     }
     page.set_instances(data)
 
-    # The readable name is now the checkbox's own text; the unique id moved to
-    # its tooltip rather than being printed a second time in its own column.
-    assert page.checkboxes["Nougat64 (Normal)"].text() == "Main Farm Bot"
-    assert page.checkboxes["Nougat64 (Normal)"].toolTip() == "Nougat64 (Normal)"
-    # no display_name key -> falls back to the unique id
-    assert page.checkboxes["Pie64 (Normal)"].text() == "Pie64 (Normal)"
+    assert "Nougat64" in page.checkboxes["Nougat64 (Normal)"].text()
+    assert "Main Farm Bot" in page.checkboxes["Nougat64 (Normal)"].text()
+    assert page.checkboxes["Tiramisu64 (Normal)"].text() == "Tiramisu64"
+    assert "BlueStacks App Player" not in page.checkboxes["Tiramisu64 (Normal)"].text()
+    assert page.checkboxes["Pie64 (Normal)"].text() == "Pie64"
+    # the technical id stays reachable on hover
+    assert page.checkboxes["Pie64 (Normal)"].toolTip() == "Pie64 (Normal)"
 
 
 def test_the_name_is_not_printed_twice(qtbot):
