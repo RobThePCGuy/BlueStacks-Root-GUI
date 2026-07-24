@@ -298,6 +298,40 @@ def test_component_helpers_noop_when_not_installed(tmp_path):
     assert ms.magisk_status(str(tmp_path)) is None
 
 
+def _stub_install(monkeypatch):
+    """Make install() a no-op that just stamps the system+databin manifest, so
+    update() can be tested without touching a real disk."""
+    monkeypatch.setattr(ms, "install",
+                        lambda instance_dir, work_dir=None, progress=None:
+                        (ms._write_manifest(instance_dir, ["system", "databin"]),
+                         ["installed"])[1])
+
+
+def test_update_preserves_the_manager_component(tmp_path, monkeypatch):
+    # A prior install with the manager tracked; install() re-stamps only
+    # system+databin, so update() must restore the manager record.
+    ms._write_manifest(str(tmp_path), ["system", "databin", "manager"])
+    _stub_install(monkeypatch)
+    ms.update(str(tmp_path))
+    assert ms.magisk_status(str(tmp_path))["components"] == \
+        ["databin", "manager", "system"]
+
+
+def test_update_without_a_manager_does_not_invent_one(tmp_path, monkeypatch):
+    ms._write_manifest(str(tmp_path), ["system", "databin"])
+    _stub_install(monkeypatch)
+    ms.update(str(tmp_path))
+    assert "manager" not in ms.magisk_status(str(tmp_path))["components"]
+
+
+def test_update_reports_the_old_and_new_version(tmp_path, monkeypatch):
+    ms._write_manifest(str(tmp_path), ["system", "databin"])
+    _stub_install(monkeypatch)
+    result = ms.update(str(tmp_path))[-1]
+    assert "Updated Magisk" in result
+    assert "Restart the instance" in result
+
+
 def test_system_write_commands_rm_gz_before_rewrite():
     # debugfs `write` won't overwrite an existing file, so a reinstall over a
     # leftover bootanim.rc.gz must rm it first.

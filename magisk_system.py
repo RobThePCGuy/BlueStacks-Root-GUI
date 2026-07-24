@@ -743,6 +743,38 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
     return results
 
 
+def update(instance_dir: str, work_dir: str | None = None, progress=None) -> list[str]:
+    """Refresh an existing Magisk install to the current payload, in place.
+
+    Re-runs :func:`install`, which is overwrite-safe: ``install_to_system`` and
+    ``stage_databin`` both clean their target directory before writing, so the
+    new payload replaces the old cleanly. Neither touches ``/data/adb/modules``
+    (ReZygisk / LSPosed) or the pm-installed manager app, so those survive an
+    update untouched.
+
+    The one thing a plain re-install would drop is the manifest's ``manager``
+    component (``install`` stamps just ``["system", "databin"]``); this restores
+    it when it was tracked before, so the status stays honest. The caller decides
+    whether an update is actually needed (see ``magisk_payload.latest_identity``);
+    this just performs it. Same preconditions as install: instance shut down,
+    and for patch-mode the engine patched.
+    """
+    prior = magisk_status(instance_dir) or {}
+    old_version = prior.get("version", "?")
+    had_manager = "manager" in (prior.get("components") or [])
+
+    results = install(instance_dir, work_dir=work_dir, progress=progress)
+    if had_manager:
+        add_component(instance_dir, "manager")
+
+    new_version = (magisk_status(instance_dir) or {}).get("version", "?")
+    results.append(
+        "Updated Magisk (%s -> %s). Restart the instance. If the manager app "
+        "needs to match the new version, reinstall it after boot."
+        % (old_version, new_version))
+    return results
+
+
 def uninstall(instance_dir: str, progress=None) -> list[str]:
     """Reverse a full install: remove the /system footprint + manager, the
     DATABIN, and the manifest.  Instance must be shut down."""

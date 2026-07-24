@@ -136,6 +136,54 @@ def test_uninstall_proceeds_on_confirm(qtbot, monkeypatch):
     ran.assert_called_once()
 
 
+def test_update_button_shows_only_when_magisk_is_installed(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    # not installed -> Install shows, Update hidden
+    _select(window, status=None)
+    assert window.instances_page.install_button.isVisibleTo(window.instances_page) is True
+    assert window.instances_page.update_button.isVisibleTo(window.instances_page) is False
+    # installed -> Update (and Uninstall) show, Install hidden
+    _select(window, status={"magisk": True, "version": "27.001-kitsune",
+                            "components": ["system"]})
+    assert window.instances_page.update_button.isVisibleTo(window.instances_page) is True
+    assert window.instances_page.install_button.isVisibleTo(window.instances_page) is False
+
+
+def test_update_is_gated_on_a_patched_engine(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance(patch_mode=True)
+    _select(window, status={"magisk": True, "version": "27.001-kitsune",
+                            "components": ["system"]})
+    monkeypatch.setattr(window, "_engine_state", lambda: "unpatched")
+    warned = MagicMock()
+    monkeypatch.setattr(QMessageBox, "warning", warned)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+
+    window.magisk_controller.handle_update()
+
+    warned.assert_called_once()
+    ran.assert_not_called()
+
+
+def test_update_runs_when_installed_and_confirmed(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance()
+    _select(window, status={"magisk": True, "version": "27.001-kitsune",
+                            "components": ["system"], "payload_sha256": "abc"})
+    monkeypatch.setattr(window, "_confirm", lambda *a, **k: True)
+    ran = MagicMock()
+    monkeypatch.setattr(window, "_run_async", ran)
+
+    window.magisk_controller.handle_update()
+
+    ran.assert_called_once()
+
+
 def test_install_manager_warns_when_adb_missing(qtbot, monkeypatch):
     window = MainWindow()
     qtbot.addWidget(window)

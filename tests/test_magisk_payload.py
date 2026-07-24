@@ -243,3 +243,30 @@ def test_fetch_apk_local_override_verifies_and_skips_network(tmp_path, monkeypat
     monkeypatch.setenv(mp.LOCAL_SHA_ENV, "0" * 64)
     with pytest.raises(RuntimeError, match="mismatch"):
         mp.fetch_apk(str(tmp_path / "cache2"))
+
+
+def test_latest_identity_from_release_returns_tag_and_digest(monkeypatch):
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: ("kyubi-2.0.0", "http://x/app-release.apk", "ABCDEF"))
+    version, sha = mp.latest_identity()
+    assert version == "kyubi-2.0.0 (Kyubi)"
+    assert sha == "abcdef"          # normalised lowercase, matches the manifest
+
+
+def test_latest_identity_uses_the_local_override_without_network(tmp_path, monkeypatch):
+    payload = b"local-apk-bytes"
+    src = tmp_path / "local.apk"
+    src.write_bytes(payload)
+    monkeypatch.setenv(mp.LOCAL_PAYLOAD_ENV, str(src))
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: (_ for _ in ()).throw(AssertionError("hit the network")))
+    version, sha = mp.latest_identity()
+    assert version == "local (Kyubi)"
+    assert sha == hashlib.sha256(payload).hexdigest()
+
+
+def test_latest_identity_fails_closed_without_a_digest(monkeypatch):
+    monkeypatch.setattr(mp, "_resolve_release",
+                        lambda: ("kyubi-2.0.0", "http://x/app-release.apk", ""))
+    with pytest.raises(RuntimeError, match="update"):
+        mp.latest_identity()

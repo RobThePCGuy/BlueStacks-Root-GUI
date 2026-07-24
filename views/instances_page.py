@@ -32,6 +32,7 @@ class InstancesPage(QWidget):
     go_to_dashboard_requested = pyqtSignal()
     # magisk
     install_requested = pyqtSignal()
+    update_requested = pyqtSignal()
     uninstall_requested = pyqtSignal()
     install_manager_requested = pyqtSignal()
     uninstall_manager_requested = pyqtSignal()
@@ -130,6 +131,11 @@ class InstancesPage(QWidget):
             "Managed root with modules, written into the system image while the "
             "instance is shut down.")
         self.install_button.clicked.connect(self.install_requested.emit)
+        self.update_button = QPushButton("Update Magisk")
+        self.update_button.setToolTip(
+            "Checks for a newer build and refreshes it offline if found. Your "
+            "manager and modules stay. Does nothing if already up to date.")
+        self.update_button.clicked.connect(self.update_requested.emit)
         self.uninstall_button = QPushButton("Uninstall Magisk")
         self.uninstall_button.setToolTip(
             "Removes Magisk and restores the stock system image.")
@@ -152,8 +158,8 @@ class InstancesPage(QWidget):
             "The Xposed framework; needs ReZygisk first. Manage its modules from "
             "the LSPosed app once the instance restarts.")
         self.lsposed_button.clicked.connect(self.install_lsposed_requested.emit)
-        for _b in (self.root_toggle_button, self.install_button, self.uninstall_button,
-                   self.manager_button, self.remove_manager_button,
+        for _b in (self.root_toggle_button, self.install_button, self.update_button,
+                   self.uninstall_button, self.manager_button, self.remove_manager_button,
                    self.rezygisk_button, self.lsposed_button):
             root_row.addWidget(_b)
         root_row.addStretch(1)
@@ -333,12 +339,14 @@ class InstancesPage(QWidget):
         one = uid is not None
         show_install = one and not installed
         self.install_button.setVisible(show_install)
+        self.update_button.setVisible(one and installed)
         self.uninstall_button.setVisible(one and installed)
         self.manager_button.setVisible(one and installed and not manager)
         self.remove_manager_button.setVisible(one and manager)
         self.rezygisk_button.setVisible(one and manager)
         self.lsposed_button.setVisible(one and manager)
         self.install_button.setEnabled(show_install and not busy)
+        self.update_button.setEnabled(one and installed and not busy)
         self.uninstall_button.setEnabled(one and installed and not busy)
         self.manager_button.setEnabled(one and installed and not manager and not busy)
         self.remove_manager_button.setEnabled(one and manager and not busy)

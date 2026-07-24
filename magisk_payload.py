@@ -213,6 +213,39 @@ def fetch_apk(cache_dir: str, progress=None) -> str:
     return dest
 
 
+def latest_identity(progress=None) -> tuple[str, str]:
+    """The version label and SHA-256 of the payload that would install *now*,
+    resolved WITHOUT downloading it.
+
+    Mirrors ``fetch_apk``'s source selection so the answer matches what an
+    install would actually use: the ``KYUBI_PAYLOAD_APK`` local override wins and
+    returns that file's hash; otherwise the newest Kyubi release is resolved and
+    its published digest returned. Used by the "Update Magisk" check to compare
+    against the installed manifest's ``payload_sha256`` before doing any work.
+
+    Returns ``(version_label, sha256)``. Raises ``RuntimeError`` if no digest is
+    resolvable (the same fail-closed rule ``fetch_apk`` uses), so an update check
+    never silently reports "up to date" on a lookup it couldn't complete.
+    """
+    def _p(msg: str) -> None:
+        logger.info(msg)
+        if progress:
+            progress(msg)
+
+    local = os.environ.get(LOCAL_PAYLOAD_ENV)
+    if local and os.path.isfile(local):
+        _p("Checking the local Kyubi payload...")
+        return "local (Kyubi)", payload_fetch.sha256_file(local)
+
+    _p("Checking the latest Kyubi release...")
+    tag, _url, expected = _resolve_release()
+    if not expected:
+        raise RuntimeError(
+            "Kyubi release %s exposes no SHA-256 digest, so an update can't be "
+            "checked. Pin a known build with %s." % (tag, PIN_TAG_ENV))
+    return "%s (Kyubi)" % tag, expected.lower()
+
+
 def extract_tools(apk_path: str, dest_dir: str, progress=None) -> dict[str, str]:
     """Extract the Magisk native tools from the APK into ``dest_dir``.
 

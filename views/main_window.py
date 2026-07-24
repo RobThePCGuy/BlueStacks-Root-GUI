@@ -186,6 +186,7 @@ class MainWindow(QWidget):
         self.modules_page.browse_zip_requested.connect(self._handle_browse_zip)
         self.modules_page.push_requested.connect(self._handle_push_module)
         self.instances_page.install_requested.connect(self.magisk_controller.handle_install)
+        self.instances_page.update_requested.connect(self.magisk_controller.handle_update)
         self.instances_page.uninstall_requested.connect(self.magisk_controller.handle_uninstall)
         self.instances_page.install_manager_requested.connect(self.magisk_controller.handle_install_manager)
         self.instances_page.uninstall_manager_requested.connect(self.magisk_controller.handle_uninstall_manager)
@@ -637,7 +638,8 @@ class MainWindow(QWidget):
         return [self.instances_page.root_toggle_button, self.instances_page.rw_toggle_button,
                 self.instances_page.launch_button, self.instances_page.restart_button,
                 self.dashboard_page.engine_button, self.modules_page.push_button,
-                self.instances_page.install_button, self.instances_page.uninstall_button,
+                self.instances_page.install_button, self.instances_page.update_button,
+                self.instances_page.uninstall_button,
                 self.instances_page.manager_button, self.instances_page.remove_manager_button,
                 self.instances_page.rezygisk_button, self.instances_page.lsposed_button,
                 self.privacy_page.block_button, self.privacy_page.unblock_button,

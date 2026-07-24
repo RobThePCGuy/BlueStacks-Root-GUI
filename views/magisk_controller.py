@@ -127,6 +127,62 @@ class MagiskController:
 
         w._run_async(job, "Removing Magisk from %s..." % uid)
 
+    def handle_update(self) -> None:
+        w = self._window
+        uid, instance = self._selected_instance()
+        if instance is None:
+            return
+        st = w.instances_page.selected_status()   # the refreshed manifest for this row
+        if not st:
+            QMessageBox.information(w, "Magisk not installed",
+                                    "There is no Magisk install on %s to update." % uid)
+            return
+        # An update rewrites the guest system image, same as a fresh install, so
+        # it needs the same patched engine to boot afterwards.
+        if instance.get("patch_mode") and w._engine_state() != "patched":
+            QMessageBox.warning(
+                w, "Patch the engine first",
+                "Updating Magisk rewrites the guest system image, which only "
+                "boots on a patched engine. Patch it from the Dashboard, then "
+                "try again.")
+            return
+        if not w._confirm(
+                "Update Magisk",
+                "Check for a newer Magisk and update %s?" % uid,
+                "<p>Looks up the latest build and, if it is newer than the one "
+                "installed, refreshes the system files and binaries offline "
+                "(BlueStacks closes first). Nothing happens if you are already "
+                "up to date.</p>"
+                "<p>Your manager app and any modules (ReZygisk, LSPosed) are left "
+                "in place. All instances of this Android version share one master "
+                "Root.vhd, so this updates every clone of it.</p>"):
+            return
+        data_path = instance["data_path"]
+        installed_sha = (st.get("payload_sha256") or "").lower()
+
+        def job(progress):
+            progress("Checking for a newer Magisk...", 0)
+            try:
+                latest_ver, latest_sha = magisk_payload.latest_identity(
+                    progress=lambda m: progress(m, -1))
+            except RuntimeError as exc:
+                return "Could not check for an update: %s" % exc
+            if latest_sha == installed_sha:
+                return "Magisk is already up to date (%s)." % st.get("version", "?")
+            progress("Newer Magisk found (%s); closing BlueStacks..." % latest_ver, -1)
+            instance_handler.terminate_bluestacks()
+            QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            try:
+                results = magisk_system.update(data_path, progress=lambda m: progress(m, -1))
+            except magisk_system.RollbackFailedError as exc:
+                raise RuntimeError(
+                    "Update failed AND the automatic cleanup also failed (%s). %s "
+                    "may be left half-installed; try \"Uninstall Magisk\" then "
+                    "\"Install Magisk\"." % (exc, uid)) from exc
+            return results[-1] if results else "Magisk updated."
+
+        w._run_async(job, "Updating Magisk on %s..." % uid)
+
     def _adb_and_port(self, instance):
         """(adb_exe, port) for an over-ADB action on a running instance, or
         (None, None) after warning if ADB isn't present."""
