@@ -172,9 +172,10 @@ def test_update_is_gated_on_a_patched_engine(qtbot, monkeypatch):
 def test_update_runs_when_installed_and_confirmed(qtbot, monkeypatch):
     window = MainWindow()
     qtbot.addWidget(window)
-    window.instance_data = _one_instance()
+    window.instance_data = _one_instance(patch_mode=True)
     _select(window, status={"magisk": True, "version": "27.001-kitsune",
                             "components": ["system"], "payload_sha256": "abc"})
+    monkeypatch.setattr(window, "_engine_state", lambda: "patched")  # pass the gate
     monkeypatch.setattr(window, "_confirm", lambda *a, **k: True)
     ran = MagicMock()
     monkeypatch.setattr(window, "_run_async", ran)
@@ -182,6 +183,35 @@ def test_update_runs_when_installed_and_confirmed(qtbot, monkeypatch):
     window.magisk_controller.handle_update()
 
     ran.assert_called_once()
+
+
+def test_update_check_reports_up_to_date_only_on_a_real_hash_match(qtbot, monkeypatch):
+    """The job compares hashes: matching -> "up to date"; an empty installed hash
+    (legacy manifest) can't match, so it refreshes instead of falsely claiming
+    current."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.instance_data = _one_instance(patch_mode=False)
+
+    import magisk_payload
+    monkeypatch.setattr(magisk_payload, "latest_identity",
+                        lambda progress=None: ("kyubi-2.0.0 (Kyubi)", "deadbeef"))
+
+    # same hash -> up to date, no terminate
+    _select(window, status={"magisk": True, "version": "kyubi-2.0.0",
+                            "components": ["system"], "payload_sha256": "DEADBEEF"})
+    captured = {}
+
+    def fake_run(job, text):
+        captured["msg"] = job(lambda *a, **k: None)
+    monkeypatch.setattr(window, "_confirm", lambda *a, **k: True)
+    monkeypatch.setattr(window, "_run_async", fake_run)
+    terminated = MagicMock()
+    monkeypatch.setattr("instance_handler.terminate_bluestacks", terminated)
+
+    window.magisk_controller.handle_update()
+    assert "already up to date" in captured["msg"].lower()
+    terminated.assert_not_called()
 
 
 def test_install_manager_warns_when_adb_missing(qtbot, monkeypatch):

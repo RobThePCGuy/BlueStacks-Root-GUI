@@ -161,15 +161,21 @@ class MagiskController:
         installed_sha = (st.get("payload_sha256") or "").lower()
 
         def job(progress):
-            progress("Checking for a newer Magisk...", 0)
+            progress("Checking the latest Magisk...", 0)
             try:
                 latest_ver, latest_sha = magisk_payload.latest_identity(
                     progress=lambda m: progress(m, -1))
             except RuntimeError as exc:
                 return "Could not check for an update: %s" % exc
-            if latest_sha == installed_sha:
+            # Only claim "up to date" when we have a real installed hash to match:
+            # an empty one (a manifest predating the field) means we can't tell, so
+            # refresh rather than silently assume current. A SHA difference proves
+            # "different", not "newer", so the copy says "update to", not "newer".
+            if installed_sha and latest_sha == installed_sha:
                 return "Magisk is already up to date (%s)." % st.get("version", "?")
-            progress("Newer Magisk found (%s); closing BlueStacks..." % latest_ver, -1)
+            step = ("Updating to %s" if installed_sha
+                    else "Installed version unknown; refreshing to %s") % latest_ver
+            progress("%s; closing BlueStacks..." % step, -1)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
             try:

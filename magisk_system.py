@@ -736,6 +736,11 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
         except Exception as rollback_exc:
             logger.exception("cross-step rollback of the /system footprint also failed")
             raise RollbackFailedError(stage_exc, rollback_exc) from stage_exc
+        # The instance is back to stock now. Clear any manifest so status matches
+        # reality: harmless for a fresh install (none exists), but essential for
+        # update(), which reuses install() over an EXISTING manifest -- without
+        # this, a rolled-back update would keep reporting Magisk as installed.
+        _clear_manifest(instance_dir)
         raise
     _write_manifest(instance_dir, ["system", "databin"])
     results.append("Magisk %s installed offline (system + complete DATABIN). Boot "

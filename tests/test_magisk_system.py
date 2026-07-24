@@ -332,6 +332,47 @@ def test_update_reports_the_old_and_new_version(tmp_path, monkeypatch):
     assert "Restart the instance" in result
 
 
+def test_rolled_back_install_clears_the_manifest(tmp_path, monkeypatch):
+    """An update reuses install() over an existing manifest. If staging fails and
+    the /system rollback succeeds, the instance is stock again, so no manifest may
+    survive claiming Magisk is still installed."""
+    ms._write_manifest(str(tmp_path), ["system", "databin", "manager"])
+    monkeypatch.setattr(ms._mp, "fetch_apk", lambda *a, **k: "apk")
+    monkeypatch.setattr(ms._mp, "extract_tools", lambda *a, **k: {"busybox": "b"})
+    monkeypatch.setattr(ms._mp, "extract_stub_apk", lambda *a, **k: "stub")
+    monkeypatch.setattr(ms._mp, "extract_databin_extras", lambda *a, **k: {})
+    monkeypatch.setattr(ms, "install_to_system", lambda *a, **k: ["sys ok"])
+
+    def boom(*a, **k):
+        raise RuntimeError("staging failed")
+    monkeypatch.setattr(ms, "stage_databin", boom)
+    monkeypatch.setattr(ms, "uninstall_from_system", lambda *a, **k: ["rolled back"])
+
+    with pytest.raises(RuntimeError, match="staging failed"):
+        ms.install(str(tmp_path))
+    # back to stock -> status must not keep claiming Magisk is installed
+    assert ms.magisk_status(str(tmp_path)) is None
+
+
+def test_failed_rollback_keeps_the_manifest_for_the_half_installed_warning(tmp_path, monkeypatch):
+    """When the rollback ITSELF fails the instance is half-installed, so the
+    manifest is left as-is (RollbackFailedError drives the user-facing warning)."""
+    ms._write_manifest(str(tmp_path), ["system", "databin"])
+    monkeypatch.setattr(ms._mp, "fetch_apk", lambda *a, **k: "apk")
+    monkeypatch.setattr(ms._mp, "extract_tools", lambda *a, **k: {"busybox": "b"})
+    monkeypatch.setattr(ms._mp, "extract_stub_apk", lambda *a, **k: "stub")
+    monkeypatch.setattr(ms._mp, "extract_databin_extras", lambda *a, **k: {})
+    monkeypatch.setattr(ms, "install_to_system", lambda *a, **k: ["sys ok"])
+    monkeypatch.setattr(ms, "stage_databin",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stage")))
+    monkeypatch.setattr(ms, "uninstall_from_system",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rollback")))
+
+    with pytest.raises(ms.RollbackFailedError):
+        ms.install(str(tmp_path))
+    assert ms.magisk_status(str(tmp_path)) is not None
+
+
 def test_system_write_commands_rm_gz_before_rewrite():
     # debugfs `write` won't overwrite an existing file, so a reinstall over a
     # leftover bootanim.rc.gz must rm it first.
