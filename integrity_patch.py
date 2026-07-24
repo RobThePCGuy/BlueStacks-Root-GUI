@@ -16,7 +16,19 @@ check fails and the player shows:
 root on the next launch: the modified disk is rejected before Android finishes
 booting.
 
-The decompiled call site is::
+Two patches, applied to ``HD-Player.exe`` in order (see ``patch_installation``):
+
+**Primary -- ``UNLOCK_PLAYER``.** ``_isDiskVerificationRequired()`` gates the
+whole check; the player only runs ``plrCheckDiskIntegrity`` when it returns
+non-zero. We overwrite that function's prologue with ``xor eax,eax ; ret``
+(``31 C0 C3``) so it returns 0, and the integrity check is never reached. The
+same unlock also flips the player into developer mode, which is what lets the
+guest ``su`` grant root -- so this one patch both stops the "tampered" shutdown
+and enables rooting. ``installation_patched()`` tests for exactly this patch.
+
+**Fallback -- ``DISK_INTEGRITY_CALL``.** For builds where the primary locator
+can't resolve ``_isDiskVerificationRequired`` cleanly, we also neutralise the
+call site itself. The decompiled site is::
 
     xor   bl, bl
     mov   [rsp+40h], bl
@@ -24,13 +36,15 @@ The decompiled call site is::
     test  al, al
     jz    <tamper -> show dialog + shutdown>
 
-This module locates that call site by a unique byte signature and overwrites
-the 5-byte ``call`` with ``mov al, 1`` + 3x ``nop`` so the result is always
-"verified". This is semantically identical to a state BlueStacks already ships:
-``plrCheckDiskIntegrity`` itself returns 1 early when signature checking is off.
+The 5-byte ``call`` is overwritten with ``mov al, 1`` + 3x ``nop``
+(``B0 01 90 90 90``) so the result is always "verified" -- semantically
+identical to a state BlueStacks already ships (``plrCheckDiskIntegrity`` returns
+1 early when signature checking is off). This is a superset-safe belt-and-braces
+patch; the primary is what the app relies on.
 
-The patch is located by signature (not a hard-coded offset) so it keeps working
-across minor 5.22.x rebuilds, and it is fully reversible via the ``.bak`` backup.
+Both are located by signature/locator (not a hard-coded offset) so they keep
+working across minor 5.22.x rebuilds, and both are fully reversible via the
+``.bak`` backup.
 
 Usage (standalone)::
 
