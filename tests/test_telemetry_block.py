@@ -14,10 +14,16 @@ def test_blocklist_is_nonempty_lowercase_domains():
 
 
 def test_dead_rtbhouse_net_entry_is_gone():
-    """It never resolved; the live endpoint is esp.rtbhouse.com."""
-    assert "rtbhouse.net" not in tb.BLOCKLIST
-    assert "rtbhouse.com" in tb.BLOCKLIST
-    assert "esp.rtbhouse.com" in tb.HOST_BLOCKLIST
+    """It never resolved; the live endpoint is esp.rtbhouse.com.
+
+    Compared by equality rather than ``in``: an entry has to be its own exact
+    hostname, so a substring sitting inside some longer domain cannot satisfy
+    this. (It also keeps CodeQL's incomplete-URL-sanitization rule quiet, which
+    cannot tell tuple membership from a substring check on a URL.)
+    """
+    assert not any(d == "rtbhouse.net" for d in tb.BLOCKLIST)
+    assert any(d == "rtbhouse.com" for d in tb.BLOCKLIST)
+    assert any(h == "esp.rtbhouse.com" for h in tb.HOST_BLOCKLIST)
 
 
 def test_subdomains_are_listed_explicitly_because_hosts_cannot_wildcard():
