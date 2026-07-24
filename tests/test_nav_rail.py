@@ -1,6 +1,6 @@
 from PyQt5.QtCore import Qt
 
-from views.nav_rail import NavRail, DASHBOARD, INSTANCES, MAGISK, MODULES, PRIVACY
+from views.nav_rail import NavRail, DASHBOARD, INSTANCES, MODULES, PRIVACY
 
 
 def test_nav_rail_starts_on_dashboard(qtbot):
@@ -10,14 +10,13 @@ def test_nav_rail_starts_on_dashboard(qtbot):
     assert rail._buttons[DASHBOARD].isChecked() is True
 
 
-def test_nav_rail_has_magisk_destination(qtbot):
+def test_nav_rail_has_exactly_the_four_destinations(qtbot):
+    """Magisk merged into Instances. A leftover Magisk button with no page
+    behind it is what crashed the app on click, so pin the set."""
     rail = NavRail()
     qtbot.addWidget(rail)
-    assert MAGISK in rail._buttons
-    with qtbot.waitSignal(rail.navigate, timeout=1000) as blocker:
-        qtbot.mouseClick(rail._buttons[MAGISK], Qt.LeftButton)
-    assert blocker.args == [MAGISK]
-    assert rail.current() == MAGISK
+    assert set(rail._buttons) == {DASHBOARD, INSTANCES, MODULES, PRIVACY}
+    assert "magisk" not in rail._buttons
 
 
 def test_nav_rail_has_privacy_destination(qtbot):

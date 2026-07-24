@@ -9,6 +9,19 @@ from views.nav_rail import INSTANCES as NAV_INSTANCES
 # (initialize_paths_and_instances only fires under a running event loop).
 
 
+def test_every_nav_destination_has_a_page(qtbot):
+    """The merge left a Magisk nav button with no page, so clicking it raised
+    KeyError and killed the app. Every rail key must map to a real page, and an
+    unknown key must be inert rather than fatal."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+    for key in window.nav_rail._buttons:
+        assert key in window._pages_by_key, key
+        window._handle_navigate(key)          # must not raise
+    assert "magisk" not in window._pages_by_key
+    window._handle_navigate("does-not-exist")  # guarded, no crash
+
+
 def _one_instance(patch_mode=True, root_enabled=False):
     return {
         "Tiramisu64 (Normal)": {

@@ -201,7 +201,14 @@ class MainWindow(QWidget):
         self.setMinimumHeight(480)
 
     def _handle_navigate(self, key: str) -> None:
-        self.pages.setCurrentWidget(self._pages_by_key[key])
+        page = self._pages_by_key.get(key)
+        if page is None:
+            # A nav key with no page would otherwise crash the app. Should not
+            # happen (the rail is built from the same destinations), but a stray
+            # key must be inert, not fatal.
+            logger.warning("navigate to unknown destination %r; ignoring", key)
+            return
+        self.pages.setCurrentWidget(page)
         if key == NAV_MODULES:
             self._refresh_running_instances()
         elif key == NAV_INSTANCES:

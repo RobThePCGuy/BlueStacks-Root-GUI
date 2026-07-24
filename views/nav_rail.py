@@ -11,14 +11,12 @@ from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout
 
 DASHBOARD = "dashboard"
 INSTANCES = "instances"
-MAGISK = "magisk"
 MODULES = "modules"
 PRIVACY = "privacy"
 
 _DESTINATIONS = [
     (DASHBOARD, "Dashboard"),
     (INSTANCES, "Instances"),
-    (MAGISK, "Magisk"),
     (MODULES, "Modules"),
     (PRIVACY, "Privacy"),
 ]
