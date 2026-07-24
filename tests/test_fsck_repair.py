@@ -179,6 +179,17 @@ def test_a_repair_reattaches_to_drop_the_stale_partition_cache(attach_stub, monk
     assert attach_stub == ["attach", "detach", "attach", "detach"]
 
 
+def test_a_stuck_detach_does_not_trigger_a_double_attach(attach_stub, monkeypatch):
+    """If the refresh detach fails, re-attaching an already-attached disk would
+    only compound it, so we keep the working device instead."""
+    monkeypatch.setattr(es, "_fsck_repair", lambda dev, env: "replayed")
+    monkeypatch.setattr(es, "_detach",
+                        lambda p: (attach_stub.append("detach-failed"), False)[1])
+    with es._Attached("R.vhd") as att:
+        assert att.device == OFFSET_DEV          # still usable
+    assert attach_stub.count("attach") == 1      # never re-attached
+
+
 def test_the_repair_note_is_reported_to_the_caller(attach_stub, monkeypatch):
     monkeypatch.setattr(es, "_fsck_repair", lambda dev, env: "replayed the journal")
     seen = []

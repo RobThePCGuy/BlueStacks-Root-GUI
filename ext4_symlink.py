@@ -357,10 +357,18 @@ class _Attached:
                     # a late write-back of stale partition-cached sectors could
                     # land on top of what debugfs writes next. Reattaching drops
                     # both caches and removes the aliasing entirely.
-                    _detach(self.vhd)
-                    _attach(self.vhd)
-                    time.sleep(1.5)
-                    self.device = self._resolve_device()
+                    if _detach(self.vhd):
+                        _attach(self.vhd)
+                        time.sleep(1.5)
+                        self.device = self._resolve_device()
+                    else:
+                        # Re-attaching something still attached would only make
+                        # this worse, so keep the working device and say why the
+                        # cache was not dropped.
+                        logger.warning(
+                            "%s: could not detach to refresh the device cache "
+                            "after the journal replay; continuing on the "
+                            "existing attachment", self.vhd)
         except Exception:
             # Leaving the VHD attached keeps the image locked and the instance
             # unbootable, so detach before the error propagates -- and say so if
