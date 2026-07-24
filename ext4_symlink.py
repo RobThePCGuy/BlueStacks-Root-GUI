@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -203,13 +204,114 @@ def _fsck_ok(device: str, env: dict) -> bool:
     return _run([_e2fsck(), "-fn", device], env=env).returncode == 0
 
 
+_FSCK_TOTALS = re.compile(r"(\d+)/(\d+) files .*? (\d+)/(\d+) blocks", re.DOTALL)
+
+
+def _fsck_totals(device: str, env: dict) -> str | None:
+    """The ``files``/``blocks`` totals e2fsck prints, as a filesystem fingerprint."""
+    r = _run([_e2fsck(), "-fn", device], env=env)
+    m = _FSCK_TOTALS.search((r.stdout or "") + (r.stderr or ""))
+    # Only the capacities identify the filesystem; the used counts move as it is
+    # repaired, so they are deliberately left out of the fingerprint.
+    return "%s/%s" % (m.group(2), m.group(4)) if m else None
+
+
+def _partition_device(device: str, env: dict) -> str | None:
+    """Find the ``/dev/sdX<n>`` node backing an ``/dev/sdX?offset=`` device.
+
+    Repairs must run on this, not the offset form (see :func:`_fsck_repair`), so
+    it matters that we do not point a repair at some *other* partition. Each
+    candidate is fingerprinted with :func:`_fsck_totals` and only accepted when
+    its size matches the offset device's, i.e. it is the same filesystem.
+    """
+    base = device.split("?")[0]
+    if base == device:          # already a plain device
+        return device
+    want = _fsck_totals(device, env)
+    if want is None:
+        return None
+    for n in range(1, 5):
+        cand = "%s%d" % (base, n)
+        if _fsck_totals(cand, env) == want:
+            return cand
+    return None
+
+
+def _fsck_repair(device: str, env: dict) -> str | None:
+    """Replay a dirty journal so the image is consistent before we write to it.
+
+    BlueStacks instances are rarely shut down cleanly: the player is terminated
+    rather than asked to close (its own clean exit needs a human to click through
+    a confirmation dialog), so the guest never unmounts and ``/data`` routinely
+    comes to rest with an unreplayed journal.  Booting replays it, which is why
+    this is invisible in normal use.
+
+    Offline it matters twice over.  ``e2fsck -fn`` cannot replay a journal, so it
+    reports such an image as damaged and every caller here turned that into
+    "e2fsck reported errors" -- an operation refused because of the previous
+    shutdown, not because anything was wrong.  Worse, writing with ``debugfs``
+    into a filesystem whose journal still holds pending metadata risks having
+    that replay overwrite the very changes just made.
+
+    Note what ``-fn`` actually reports on such an image::
+
+        Warning: skipping journal recovery because doing a read-only filesystem check
+        Inode 3410023 was part of the orphaned inode list.  IGNORED.
+        Block bitmap differences: ...
+
+    Those "errors" are phantoms: they are the journal's pending metadata, and
+    they evaporate once it is replayed.  Refusing to work on that image was
+    refusing over nothing.
+
+    The repair has to run on the **partition device**, not on the
+    ``?offset=`` one everything else here uses.  After replaying a journal
+    e2fsck reopens the filesystem to restart its check, and the reopen drops the
+    ``?offset=`` qualifier, so it lands on the raw disk and dies with ``Bad magic
+    number in super-block`` (exit 12) *before committing anything*.  The replay
+    then never persists: run it twice and it announces "recovering journal" both
+    times, with the image byte-for-byte unchanged.  Pointed at ``/dev/sdX1``
+    there is no qualifier to lose, and the same preen completes normally (exit 1,
+    "recovering journal" plus the orphaned inodes cleared) and sticks.
+
+    Returns a note when a repair happened, or ``None`` if the image was already
+    clean.  Raises when the image is still not clean afterwards, since that is
+    damage a write should not land on top of.
+    """
+    if _fsck_ok(device, env):
+        return None
+
+    part = _partition_device(device, env)
+    if part is None:
+        raise RuntimeError(
+            "the instance's filesystem needs its journal replayed before it can "
+            "be written to, but its partition device could not be located. "
+            "Start the instance once and shut it down so Android can replay it, "
+            "then try again.")
+
+    # -fp (preen): the automatic, safe-repairs-only mode a Linux boot uses. Its
+    # exit code is informative only; the verdict below comes from re-checking.
+    _run([_e2fsck(), "-fp", part], env=env)
+
+    if _fsck_ok(device, env):
+        return ("Replayed the filesystem journal left by the last shutdown "
+                "before writing.")
+    raise RuntimeError(
+        "the instance's filesystem still reports errors after replaying its "
+        "journal, so this tool will not write to it. Start the instance once "
+        "and shut it down so Android can repair it, then try again.")
+
+
 class _Attached:
     """Context manager: attach the VHD, resolve its Cygwin device, detach on exit."""
 
-    def __init__(self, vhd_path: str):
+    def __init__(self, vhd_path: str, repair: bool = True):
         self.vhd = vhd_path
         self.offset = _partition_offset(vhd_path)
         self.device: str | None = None
+        # Every offline writer funnels through here, so this is the one place a
+        # dirty journal can be dealt with once for all of them.
+        self.repair = repair
+        self.repaired: str | None = None
 
     def __enter__(self) -> _Attached:
         _attach(self.vhd)
@@ -219,6 +321,16 @@ class _Attached:
             _detach(self.vhd)
             raise RuntimeError("could not locate the attached Root.vhd disk")
         self.device = _cyg_device(num, self.offset)
+        if self.repair:
+            try:
+                self.repaired = _fsck_repair(self.device, _tool_env())
+                if self.repaired:
+                    logger.info("%s: %s", self.vhd, self.repaired)
+            except Exception:
+                # Leaving the VHD attached would keep the image locked and the
+                # instance unbootable, so detach before the error propagates.
+                _detach(self.vhd)
+                raise
         return self
 
     def __exit__(self, *exc) -> None:
