@@ -204,35 +204,40 @@ def _fsck_ok(device: str, env: dict) -> bool:
     return _run([_e2fsck(), "-fn", device], env=env).returncode == 0
 
 
-_FSCK_TOTALS = re.compile(r"(\d+)/(\d+) files .*? (\d+)/(\d+) blocks", re.DOTALL)
+_UUID_RE = re.compile(r"^Filesystem UUID:\s*(\S+)", re.MULTILINE)
 
 
-def _fsck_totals(device: str, env: dict) -> str | None:
-    """The ``files``/``blocks`` totals e2fsck prints, as a filesystem fingerprint."""
-    r = _run([_e2fsck(), "-fn", device], env=env)
-    m = _FSCK_TOTALS.search((r.stdout or "") + (r.stderr or ""))
-    # Only the capacities identify the filesystem; the used counts move as it is
-    # repaired, so they are deliberately left out of the fingerprint.
-    return "%s/%s" % (m.group(2), m.group(4)) if m else None
+def _fs_uuid(device: str, env: dict) -> str | None:
+    """The ext4 superblock UUID, or None if this isn't a readable ext4 device.
+
+    Read with ``debugfs`` rather than a check pass: it is a superblock read, so
+    it costs milliseconds where ``e2fsck -f`` walks the whole (multi-GB) image,
+    and a UUID is an actual identity where matching sizes are not.
+    """
+    r = _run([_debugfs(), "-R", "show_super_stats -h", device], env=env)
+    m = _UUID_RE.search(r.stdout or "")
+    return m.group(1) if m else None
 
 
 def _partition_device(device: str, env: dict) -> str | None:
     """Find the ``/dev/sdX<n>`` node backing an ``/dev/sdX?offset=`` device.
 
-    Repairs must run on this, not the offset form (see :func:`_fsck_repair`), so
-    it matters that we do not point a repair at some *other* partition. Each
-    candidate is fingerprinted with :func:`_fsck_totals` and only accepted when
-    its size matches the offset device's, i.e. it is the same filesystem.
+    Repairs have to run on this rather than the offset form (see
+    :func:`_fsck_repair`).  That means briefly relying on Cygwin's partition
+    nodes, which :func:`_cyg_device` deliberately avoids for the *working*
+    device, so this is best-effort by design: when no node matches, the caller
+    skips the repair instead of failing.  Candidates are matched on superblock
+    UUID, so a repair can never be pointed at a different filesystem.
     """
     base = device.split("?")[0]
     if base == device:          # already a plain device
         return device
-    want = _fsck_totals(device, env)
-    if want is None:
+    want = _fs_uuid(device, env)
+    if not want:
         return None
     for n in range(1, 5):
         cand = "%s%d" % (base, n)
-        if _fsck_totals(cand, env) == want:
+        if _fs_uuid(cand, env) == want:
             return cand
     return None
 
@@ -273,64 +278,100 @@ def _fsck_repair(device: str, env: dict) -> str | None:
     there is no qualifier to lose, and the same preen completes normally (exit 1,
     "recovering journal" plus the orphaned inodes cleared) and sticks.
 
-    Returns a note when a repair happened, or ``None`` if the image was already
-    clean.  Raises when the image is still not clean afterwards, since that is
-    damage a write should not land on top of.
+    **Best-effort, and never raises.**  It would be wrong to turn "could not
+    replay" into a hard failure: an unreplayed journal is the *normal* resting
+    state of a BlueStacks image, so raising would blanket-block every offline
+    write on any host where the partition node cannot be found, and it would
+    also block the uninstall and restore paths, which deliberately tolerate a
+    dirty filesystem (``remove_su_symlink`` runs ``_fsck_ok`` and discards the
+    result precisely so a removal always completes).  Refusing to let someone
+    undo a change because their last shutdown was untidy is a worse bug than the
+    one this fixes.  When the replay cannot happen we are simply no worse off
+    than before, and the callers' own post-write checks still apply.
+
+    Returns a note when a repair happened, otherwise ``None``.
     """
     if _fsck_ok(device, env):
         return None
 
     part = _partition_device(device, env)
     if part is None:
-        raise RuntimeError(
-            "the instance's filesystem needs its journal replayed before it can "
-            "be written to, but its partition device could not be located. "
-            "Start the instance once and shut it down so Android can replay it, "
-            "then try again.")
+        logger.warning(
+            "%s: journal looks unreplayed but no matching partition node was "
+            "found, so it is left as-is", device)
+        return None
 
     # -fp (preen): the automatic, safe-repairs-only mode a Linux boot uses. Its
-    # exit code is informative only; the verdict below comes from re-checking.
-    _run([_e2fsck(), "-fp", part], env=env)
+    # exit code is informative only (12 even on success here, see above), so the
+    # verdict comes from re-checking; log it either way or a failed repair would
+    # look like filesystem damage.
+    result = _run([_e2fsck(), "-fp", part], env=env)
+    logger.info("e2fsck -fp %s -> exit %s: %s", part, result.returncode,
+                ((result.stdout or "") + (result.stderr or "")).strip()[:500])
 
     if _fsck_ok(device, env):
         return ("Replayed the filesystem journal left by the last shutdown "
                 "before writing.")
-    raise RuntimeError(
-        "the instance's filesystem still reports errors after replaying its "
-        "journal, so this tool will not write to it. Start the instance once "
-        "and shut it down so Android can repair it, then try again.")
+    logger.warning(
+        "%s: still reports errors after replaying its journal; continuing, but "
+        "the caller's own verification may fail", device)
+    return None
 
 
 class _Attached:
     """Context manager: attach the VHD, resolve its Cygwin device, detach on exit."""
 
-    def __init__(self, vhd_path: str, repair: bool = True):
+    def __init__(self, vhd_path: str, repair: bool = True, progress=None):
         self.vhd = vhd_path
         self.offset = _partition_offset(vhd_path)
         self.device: str | None = None
         # Every offline writer funnels through here, so this is the one place a
         # dirty journal can be dealt with once for all of them.
         self.repair = repair
+        # A replay runs before the caller's first progress message and can take a
+        # while on a large image, so callers pass their reporter in to say so
+        # rather than looking frozen on "Attaching...".
+        self.progress = progress
         self.repaired: str | None = None
+
+    def _resolve_device(self) -> str:
+        num = _disk_number(self.vhd)
+        if num is None:
+            raise RuntimeError("could not locate the attached Root.vhd disk")
+        return _cyg_device(num, self.offset)
 
     def __enter__(self) -> _Attached:
         _attach(self.vhd)
         time.sleep(1.5)  # let Windows enumerate the disk
-        num = _disk_number(self.vhd)
-        if num is None:
-            _detach(self.vhd)
-            raise RuntimeError("could not locate the attached Root.vhd disk")
-        self.device = _cyg_device(num, self.offset)
-        if self.repair:
-            try:
+        try:
+            self.device = self._resolve_device()
+            if self.repair:
                 self.repaired = _fsck_repair(self.device, _tool_env())
                 if self.repaired:
                     logger.info("%s: %s", self.vhd, self.repaired)
-            except Exception:
-                # Leaving the VHD attached would keep the image locked and the
-                # instance unbootable, so detach before the error propagates.
-                _detach(self.vhd)
-                raise
+                    if self.progress:
+                        self.progress(self.repaired)
+                    # The preen wrote through the *partition* node, while every
+                    # other write here goes through the *disk* node. On Windows
+                    # those are separate device objects with separate caches, so
+                    # a late write-back of stale partition-cached sectors could
+                    # land on top of what debugfs writes next. Reattaching drops
+                    # both caches and removes the aliasing entirely.
+                    _detach(self.vhd)
+                    _attach(self.vhd)
+                    time.sleep(1.5)
+                    self.device = self._resolve_device()
+        except Exception:
+            # Leaving the VHD attached keeps the image locked and the instance
+            # unbootable, so detach before the error propagates -- and say so if
+            # that detach fails, or the user gets an unrelated error while a raw
+            # disk is still mounted.
+            if not _detach(self.vhd):
+                logger.error(
+                    "failed to detach %s -- it may still be mounted as a raw "
+                    "disk; detach it via Disk Management before relaunching the "
+                    "instance", self.vhd)
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
@@ -373,7 +414,7 @@ def add_su_symlink(instance_dir: str, progress=None) -> list[str]:
     env = _tool_env()
     results: list[str] = []
     _p("Attaching Root.vhd (app-root symlink)...")
-    with _Attached(vhd) as att:
+    with _Attached(vhd, progress=_p) as att:
         dev = att.device
         xbin = _find_xbin(dev, env)
         if not xbin:
@@ -408,7 +449,7 @@ def remove_su_symlink(instance_dir: str, progress=None) -> list[str]:
     env = _tool_env()
     results: list[str] = []
     _p("Attaching Root.vhd (remove app-root symlink)...")
-    with _Attached(vhd) as att:
+    with _Attached(vhd, progress=_p) as att:
         dev = att.device
         xbin = _find_xbin(dev, env)
         if not xbin or "Type: symlink" not in _stat_su(dev, xbin, env):
