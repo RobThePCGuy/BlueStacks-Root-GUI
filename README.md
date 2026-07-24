@@ -146,7 +146,7 @@ schtasks /Change /TN "BlueStacksHelper_nxt" /DISABLE
 **No instances listed / "Path Not Found"**
 - Run the GUI as **Administrator**
 - Verify registry keys exist: `HKLM\SOFTWARE\BlueStacks_nxt` (Normal), `HKLM\SOFTWARE\BlueStacks_nxt_cn` (China), or `HKLM\SOFTWARE\BlueStacks_msi5` (MSI)
-- Perform a clean reinstall using the official cleaner tool
+- As a last resort, start fresh: run BlueStacks' official **[BSTCleaner](https://support.bluestacks.com/hc/en-us/articles/360057724751)** to remove everything, then reinstall
 
 **"Permission denied" while patching `HD-MultiInstanceManager.exe`**
 - This means the Multi-Instance Manager window was open, locking the file. The tool now closes it automatically before patching; make sure you're on the latest version, then re-run "Patch BlueStacks Engine."
