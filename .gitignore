@@ -11,3 +11,4 @@ BlueStacksRootGUI*.spec
 /patch_work/
 *.prepatch.bak
 *.i64
+.codebase-reckoning/
