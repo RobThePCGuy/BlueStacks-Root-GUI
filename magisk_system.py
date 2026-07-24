@@ -429,7 +429,7 @@ def stage_databin(instance_dir: str, tools: dict[str, str],
     grant_script = _grant_script_tempfile()  # service.d ADB auto-grant; removed below
     _p("Attaching Data.vhdx (staging Magisk binaries)...")
     try:
-        with _es._Attached(vhdx) as att:
+        with _es._Attached(vhdx, progress=_p) as att:
             dev = att.device
             _p("Writing %d DATABIN files into %s..." % (total, _DATABIN))
             svc_exists = "Inode:" in _es._stat_path(dev, _SERVICE_D, env)
@@ -480,7 +480,7 @@ def unstage_databin(instance_dir: str, progress=None) -> list[str]:
         return ["e2fsprogs/Data.vhdx unavailable -- nothing to remove"]
     env = _es._tool_env()
     _p("Attaching Data.vhdx (removing Magisk binaries)...")
-    with _es._Attached(vhdx) as att:
+    with _es._Attached(vhdx, progress=_p) as att:
         dev = att.device
         _es._run_script(dev, _clean_dir_commands(dev, _DATABIN, env)
                         + ["rm %s/%s" % (_SERVICE_D, _ADB_GRANT_SCRIPT)], env)  # DATABIN + auto-grant
@@ -590,7 +590,7 @@ def install_to_system(instance_dir: str, tools: dict[str, str], stub_path: str,
 
     env = _es._tool_env()
     _p("Attaching Root.vhd (installing Magisk to /system)...")
-    with _es._Attached(root_vhd) as att:
+    with _es._Attached(root_vhd, progress=_p) as att:
         dev = att.device
         sysroot = _find_system_root(dev, env)
         magiskdir = "%s/etc/init/magisk" % sysroot
@@ -644,7 +644,7 @@ def uninstall_from_system(instance_dir: str, progress=None) -> list[str]:
     env = _es._tool_env()
     _p("Attaching Root.vhd (removing Magisk system files)...")
     try:
-        with _es._Attached(root_vhd) as att:
+        with _es._Attached(root_vhd, progress=_p) as att:
             dev = att.device
             sysroot = _find_system_root(dev, env)
             initdir = "%s/etc/init" % sysroot

@@ -283,7 +283,7 @@ def apply(instance_dir: str, progress=None) -> list[str]:
     env = _es._tool_env()
 
     _p("Attaching Root.vhd (blocking ad/telemetry hosts)...")
-    with _es._Attached(root_vhd) as att:
+    with _es._Attached(root_vhd, progress=_p) as att:
         dev = att.device
         sysroot = _ms._find_system_root(dev, env)
         current = _dump_hosts(dev, sysroot, env)
@@ -326,7 +326,7 @@ def remove(instance_dir: str, progress=None) -> list[str]:
     env = _es._tool_env()
 
     _p("Attaching Root.vhd (restoring guest hosts)...")
-    with _es._Attached(root_vhd) as att:
+    with _es._Attached(root_vhd, progress=_p) as att:
         dev = att.device
         sysroot = _ms._find_system_root(dev, env)
         if os.path.isfile(backup):
