@@ -51,9 +51,28 @@ _LINK_TARGET = "bstk/su"  # relative -> resolves to <xbin>/bstk/su
 
 
 def _tool_dir() -> str:
+    """Directory holding the bundled ``debugfs.exe``/``e2fsck.exe``.
+
+    Frozen builds unpack the tools wherever the PyInstaller ``--add-data``
+    destination put them, which is not the same as the source tree's layout, and
+    the two have drifted before: the build bundled ``tools/e2fsprogs`` while this
+    looked in ``e2fsprogs``, so every released exe reported "bundled e2fsprogs
+    (debugfs) not found" and no offline operation worked. Rather than encode one
+    guess, try the known destinations and return the first that actually holds
+    the tools; the primary is returned unchanged when none does, so the error
+    message still names a sensible path.
+    """
     if getattr(sys, "frozen", False):  # PyInstaller onefile
-        return os.path.join(sys._MEIPASS, "e2fsprogs")  # type: ignore[attr-defined]
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "e2fsprogs")
+        base = sys._MEIPASS  # type: ignore[attr-defined]
+        candidates = (os.path.join(base, "tools", "e2fsprogs"),  # what the build ships
+                      os.path.join(base, "e2fsprogs"))
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        candidates = (os.path.join(here, "tools", "e2fsprogs"),)
+    for cand in candidates:
+        if os.path.isfile(os.path.join(cand, "debugfs.exe")):
+            return cand
+    return candidates[0]
 
 
 def _debugfs() -> str:

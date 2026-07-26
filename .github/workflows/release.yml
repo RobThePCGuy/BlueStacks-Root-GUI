@@ -30,12 +30,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      # Every --add-data destination here is asserted against the paths the code
+      # actually resolves when frozen (tests/test_frozen_bundle.py), so a change
+      # on either side that breaks the exe fails CI instead of shipping.
       - name: Build executable
         run: >
           pyinstaller --onefile --windowed
           --icon="favicon.ico"
           --add-data "favicon.ico;."
           --add-data "tools/e2fsprogs;tools/e2fsprogs"
+          --add-data "magisk_assets;magisk_assets"
           --name BlueStacksRootGUI main.py
 
       - name: Upload build artifact

@@ -89,7 +89,7 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --add-data "tools/e2fsprogs;tools/e2fsprogs" --name BlueStacksRootGUI main.py
+pyinstaller --onefile --windowed --icon="favicon.ico" --add-data "favicon.ico;." --add-data "tools/e2fsprogs;tools/e2fsprogs" --add-data "magisk_assets;magisk_assets" --name BlueStacksRootGUI main.py
 ```
 
 Output lands in the `dist/` folder.
