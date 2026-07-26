@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,37 @@ def _resolve_serial(adb_exe: str, port: Optional[int], runner: Runner) -> str:
             "be identified. Close the others and retry, or start only the target "
             "instance.")
     return devices[0]
+
+
+def wait_until_ready(adb_exe: str, port: Optional[int], timeout: int = 240,
+                     progress=None, runner: Runner = _run,
+                     sleep=time.sleep) -> Optional[str]:
+    """Wait for a just-launched instance to finish booting; its serial, or None.
+
+    ADB accepts a connection well before Android reaches the home screen, and
+    installing an app into a half-booted system fails, so readiness means both
+    a connectable device *and* ``sys.boot_completed=1``. Polls instead of
+    blocking so a caller can keep reporting progress, and gives up at ``timeout``
+    rather than hanging a background job forever.
+    """
+    target = "127.0.0.1:%d" % port if port else None
+    interval = 5
+    waited = 0
+    while waited < timeout:
+        if target:
+            runner([adb_exe, "connect", target])
+        serials = _parse_devices(runner([adb_exe, "devices"]).stdout or "")
+        # Prefer the instance's own port; a second transport (emulator-5554) is
+        # usually the same guest, so it is an acceptable fallback.
+        for serial in ([target] if target in serials else serials):
+            cp = runner([adb_exe, "-s", serial, "shell", "getprop", "sys.boot_completed"])
+            if (cp.stdout or "").strip() == "1":
+                return serial
+        sleep(interval)
+        waited += interval
+        if progress:
+            progress("Waiting for the instance to finish booting (%ds)..." % waited)
+    return None
 
 
 def _ensure_su_policy(adb_exe: str, serial: str, runner: Runner) -> None:

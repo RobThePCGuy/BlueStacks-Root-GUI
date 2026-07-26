@@ -18,6 +18,31 @@ def step_percent(index: int, total: int) -> int:
     return max(0, min(100, pct))
 
 
+class StepReporter:
+    """Turn a backend's plain progress messages into a moving percentage.
+
+    The offline modules report *what* they are doing, not how far along they
+    are, so every long operation passed -1 and the docked bar sat on its
+    indeterminate marquee with no number: the app looked identical at 5% and
+    95%. Counting messages against an expected total gives a bar that actually
+    advances.
+
+    It is an estimate, and honest about it: the value is clamped below 100 so an
+    operation that emits more messages than expected never looks finished early,
+    and completion is reported by the caller when the work is really done.
+    """
+
+    def __init__(self, report, expected: int, ceiling: int = 95):
+        self._report = report
+        self._expected = max(1, expected)
+        self._ceiling = ceiling
+        self._seen = 0
+
+    def __call__(self, message: str) -> None:
+        self._seen += 1
+        self._report(message, min(self._ceiling, step_percent(self._seen, self._expected)))
+
+
 class OperationProgressBar(QWidget):
     """A status label that's always visible, plus a QProgressBar that only
     shows itself while an operation is running (determinate or
@@ -32,7 +57,9 @@ class OperationProgressBar(QWidget):
         # window edge instead of running off to the right.
         self._label.setWordWrap(True)
         self._bar = QProgressBar()
-        self._bar.setTextVisible(False)
+        # Show the number. With this off the bar filled silently, so even the
+        # operations that did report real percentages looked indeterminate.
+        self._bar.setTextVisible(True)
         self._bar.setVisible(False)
         layout.addWidget(self._label)
         layout.addWidget(self._bar)

@@ -257,7 +257,7 @@ class MainWindow(QWidget):
                 "unpatched": ("Patch BlueStacks Engine (required for root)",
                               "#c62828", "Patches HD-Player.exe (and HD-MultiInstanceManager.exe) "
                               "to disable the integrity shutdown so rooted instances boot. Do "
-                              "this once, then Toggle Root per instance.", True),
+                              "this once, then pick a root method per instance.", True),
                 "partial": ("Engine partially patched (click to finish)",
                             "#e65100", "Some engine binaries aren't patched yet. Re-run the "
                             "patch to bring them all up to date.", True),
@@ -416,7 +416,7 @@ class MainWindow(QWidget):
                     "%s hasn't generated its root files yet, so there was nothing "
                     "to patch.\n\nStart this instance in BlueStacks, let it fully "
                     "reach the home screen, then close it completely and click "
-                    "\"Toggle Root\" again." % unique_id,
+                    "\"Native Root\" again." % unique_id,
                 )
         else:
             if progress:
@@ -786,10 +786,10 @@ class MainWindow(QWidget):
                 all_results.extend(root_persistence.patch_root_persistence(install_dir))
             for line in all_results:
                 logger.info("  %s", line)
-            logger.info("Engine patched. Next: Toggle Root per instance, then start "
+            logger.info("Engine patched. Next: pick a root method per instance, then start "
                         "BlueStacks. Disable BstHdUpdaterSvc so an update doesn't "
                         "re-lock it.")
-            return "Engine patched. Now Toggle Root per instance, then start BlueStacks."
+            return "Engine patched. Now pick a root method per instance, then start BlueStacks."
 
         self._run_async(job, "Patching BlueStacks engine...")
 

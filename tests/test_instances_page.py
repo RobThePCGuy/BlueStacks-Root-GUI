@@ -222,9 +222,9 @@ def test_root_column_names_the_method_in_use(qtbot):
     })
     texts = [w.text() for i in range(page.instance_layout.count())
              if isinstance((w := page.instance_layout.itemAt(i).widget()), QLabel)]
-    assert "App" in texts
-    assert "Magisk" in texts
-    assert "App + Magisk" in texts      # the conflicting state is named
+    assert "Native" in texts
+    assert "Manager" in texts
+    assert "Native + Manager" in texts   # the conflicting state is named
     assert "Off" in texts
 
 
@@ -238,4 +238,33 @@ def test_conflicting_root_methods_are_called_out(qtbot):
                                                 "components": ["system"]}})
     page.checkboxes["Both (Normal)"].setChecked(True)
     hint = page.hint_label.text().lower()
-    assert "both provide su" in hint and "turn app root off" in hint
+    assert "fight over su" in hint and "native root" in hint
+
+
+def test_native_root_button_says_what_the_click_will_do(qtbot):
+    """It is a toggle, so a fixed label leaves the user guessing."""
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_instances({"A (Normal)": {"root_enabled": False,
+                                       "rw_mode": constants.MODE_READONLY}})
+    page.checkboxes["A (Normal)"].setChecked(True)
+    assert page.root_toggle_button.text() == "Native Root"
+
+    page.set_instances({"A (Normal)": {"root_enabled": True,
+                                       "rw_mode": constants.MODE_READONLY}})
+    page.checkboxes["A (Normal)"].setChecked(True)
+    assert page.root_toggle_button.text() == "Disable Native Root"
+
+
+def test_root_buttons_are_short_enough_not_to_truncate(qtbot):
+    """Six long labels in one row overflowed the window and rendered as
+    "stall Ma" / "ove man". Keep them short and split across two rows."""
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    for name in ("root_toggle_button", "install_button", "uninstall_button",
+                 "update_button", "manager_button", "remove_manager_button",
+                 "rezygisk_button", "lsposed_button"):
+        label = getattr(page, name).text()
+        assert len(label) <= 20, (name, label)

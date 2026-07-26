@@ -11,6 +11,8 @@ DISPLAY_NAME_KEY = ".display_name"
 # A display name is only worth showing when the user has changed it from this.
 GENERIC_DISPLAY_NAMES = frozenset({"BlueStacks App Player"})
 FEATURE_ROOTING_KEY = "bst.feature.rooting"
+# ADB is off by default on a fresh install, and the manager-app install needs it.
+ENABLE_ADB_KEY = "bst.enable_adb_access"
 BLUESTACKS_CONF_FILENAME = "bluestacks.conf"
 
 

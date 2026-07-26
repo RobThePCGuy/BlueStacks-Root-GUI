@@ -11,6 +11,7 @@ interleaved with every other tab's handlers in one 1000+ line file.
 """
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 
@@ -18,12 +19,16 @@ from PyQt5.QtCore import QThread
 from PyQt5.QtWidgets import QMessageBox
 
 import adb_handler
+import config_handler
 import constants
 import instance_handler
 import lsposed_payload
 import magisk_payload
 import magisk_system
 import rezygisk_payload
+from views.progress import StepReporter
+
+logger = logging.getLogger(__name__)
 
 
 class MagiskController:
@@ -59,35 +64,42 @@ class MagiskController:
                 "boots on a patched engine. Patch it from the Dashboard, then "
                 "try again.")
             return
-        app_root_note = (
-            "<p><b>Heads up:</b> this instance has app-root (Toggle Root) on. "
-            "Magisk brings its own <code>su</code>. Turn app-root off on the "
-            "Instances tab to avoid two competing su providers.</p>"
-            if instance.get("root_enabled") else "")
+        native_on = bool(instance.get("root_enabled"))
+        swap_note = ("<p>Native Root is on. Both provide <code>su</code> and would "
+                     "fight, so it is switched off first.</p>" if native_on else "")
         if not w._confirm(
-                "Install Magisk",
-                "Install full offline Magisk system-root into %s?" % uid,
-                "<p>Writes Magisk into the instance's system and data images while "
-                "it's shut down, no R/W toggle, no temp-root. All BlueStacks "
-                "processes close first.</p>"
-                "<p>When it finishes: start the instance, enable ADB, then click "
-                "<b>Install manager app</b>.</p>"
-                "<p>All instances of this Android version share one master "
-                "Root.vhd: installing here roots every clone of it, not just "
-                "%s.</p>"
-                "<p>This gives you root, Zygisk, and Xposed. It does not give "
-                "you Play Integrity: Google limits emulator integrity to its own "
-                "Google Play Games, so apps that gate on it stay broken.</p>"
-                % uid + app_root_note):
+                "Manager Root",
+                "Install Magisk-managed root into %s?" % uid,
+                "<p>Writes Magisk into the system image while the instance is shut "
+                "down, then starts it and installs the manager app for you.</p>"
+                + swap_note +
+                "<p>Every instance of this Android version shares one system image, "
+                "so this affects its clones too.</p>"):
             return
+
         data_path = instance["data_path"]
+        install_dir = instance.get("install_path")
+        instance_name = instance["original_name"]
+        config_path = instance["config_path"]
+        # Resolved here, on the UI thread: _adb_and_port can raise a dialog, and
+        # the manager step below runs in the worker.
+        install_dirs = [i.get("install_path") for i in w.installations]
+        adb_exe = adb_handler.find_adb(install_dirs)
+        port = (adb_handler.instance_adb_port(config_path, instance_name)
+                if adb_exe else None)
 
         def job(progress):
+            steps = StepReporter(progress, expected=18)
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
+            if native_on:
+                # The conflict is mechanical and the app understands it, so it
+                # resolves it rather than sending the user off to do a chore.
+                steps("Switching Native Root off...")
+                w._toggle_single_instance_root(uid, steps)
             try:
-                results = magisk_system.install(data_path, progress=lambda m: progress(m, -1))
+                magisk_system.install(data_path, progress=steps)
             except magisk_system.RollbackFailedError as exc:
                 # Distinct from a plain install failure: the automatic /system
                 # rollback also failed, so the instance may be left half-installed
@@ -95,11 +107,47 @@ class MagiskController:
                 raise RuntimeError(
                     "Install failed AND the automatic cleanup also failed (%s). "
                     "%s may now be left half-installed and unable to boot. Try "
-                    "\"Uninstall Magisk\" to force-clean it; if that also fails, "
-                    "restore this instance from a backup." % (exc, uid)) from exc
-            return results[-1] if results else "Magisk installed."
+                    "\"Remove Manager Root\" to force-clean it; if that also "
+                    "fails, restore this instance from a backup." % (exc, uid)) from exc
+            return self._finish_with_manager(
+                data_path, install_dir, instance_name, config_path,
+                adb_exe, port, steps)
 
-        w._run_async(job, "Installing Magisk into %s..." % uid)
+        w._run_async(job, "Installing Manager Root into %s..." % uid)
+
+    def _finish_with_manager(self, data_path, install_dir, instance_name,
+                             config_path, adb_exe, port, report) -> str:
+        """Start the instance and install the manager app over ADB.
+
+        The offline install leaves working root but no manager app, and making
+        the user boot the instance and press a second button for something the
+        app can do itself was the most confusing part of the flow. Every failure
+        here is reported as a follow-up, never as a failed install: the root is
+        already in and valuable on its own, so this must not turn a success into
+        an error.
+        """
+        if not adb_exe or not install_dir:
+            return ("Manager Root installed. Start the instance, then use "
+                    "\"Manager app\" to add the Magisk app.")
+        try:
+            # ADB is off by default on a fresh instance, and the manager install
+            # needs it; enabling it here is what makes this step reliable.
+            config_handler.modify_config_file(config_path, constants.ENABLE_ADB_KEY, "1")
+            report("Starting the instance to finish setup...")
+            instance_handler.launch_instance(install_dir, instance_name)
+            serial = adb_handler.wait_until_ready(adb_exe, port, progress=report)
+            if not serial:
+                return ("Manager Root installed, but the instance did not finish "
+                        "booting in time. Once it is up, use \"Manager app\".")
+            apk = magisk_payload.fetch_apk(self._cache_dir(), progress=report)
+            adb_handler.install_manager(adb_exe, port, apk, progress=report)
+            magisk_system.add_component(data_path, "manager")
+        except Exception as exc:  # noqa: BLE001 - the root install already succeeded
+            logger.warning("automatic manager install failed", exc_info=True)
+            return ("Manager Root installed. The Magisk app could not be added "
+                    "automatically (%s); use \"Manager app\" to retry." % exc)
+        return ("Manager Root and the Magisk app are installed. Restart the "
+                "instance when you want to add modules.")
 
     def handle_uninstall(self) -> None:
         w = self._window

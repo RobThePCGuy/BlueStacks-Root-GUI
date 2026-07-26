@@ -40,14 +40,11 @@ class InstancesPage(QWidget):
     install_lsposed_requested = pyqtSignal()
 
     _PICK_ONE = "Tick one instance to see what you can do with it."
-    _HINT_APP = ("App root is on. It gives root to apps but no modules; install "
-                 "Magisk instead if you want Zygisk or Xposed.")
-    _HINT_INSTALL = "Install Magisk for managed root with modules, or use app root for a quick su."
-    _HINT_MANAGER = "Next: start the instance, then install the manager app."
-    _HINT_MODULES = ("Next: install ReZygisk, then LSPosed, then Restart once to "
-                     "activate them.")
-    _HINT_CONFLICT = ("App root and Magisk are both on. They both provide su and "
-                      "will fight; turn app root off.")
+    _HINT_NATIVE = "Native Root is on. Choose Manager Root instead if you want modules."
+    _HINT_CHOOSE = "Native Root for a quick su, or Manager Root to add modules."
+    _HINT_MODULES = "Add ReZygisk, then LSPosed, then Restart once to activate them."
+    _HINT_CONFLICT = ("Both roots are on and will fight over su. Switch off "
+                      "Native Root.")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -120,50 +117,60 @@ class InstancesPage(QWidget):
         self.root_group = QGroupBox("Root")
         root_layout = QVBoxLayout(self.root_group)
 
-        root_row = QHBoxLayout()
-        self.root_toggle_button = QPushButton("Toggle app root")
+        # Row 1: the choice itself. Two labels, kept short so they cannot
+        # truncate at the window's minimum width; the explanation is in the
+        # tooltips rather than on the buttons.
+        choice_row = QHBoxLayout()
+        self.root_toggle_button = QPushButton("Native Root")
         self.root_toggle_button.setToolTip(
-            "BlueStacks' own root: quick and reversible, but no modules. "
-            "Applies to every ticked instance.")
+            "BlueStacks' own su. Quick and reversible, works for root apps and "
+            "root checkers, but gives you no modules.")
         self.root_toggle_button.clicked.connect(self.toggle_root_requested.emit)
-        self.install_button = QPushButton("Install Magisk")
+        self.install_button = QPushButton("Manager Root")
         self.install_button.setToolTip(
-            "Managed root with modules, written into the system image while the "
-            "instance is shut down.")
+            "Magisk-managed root: adds modules, Zygisk and LSPosed. Installed "
+            "into the system image offline; switches off Native Root for you.")
         self.install_button.clicked.connect(self.install_requested.emit)
-        self.update_button = QPushButton("Update Magisk")
-        self.update_button.setToolTip(
-            "Checks for a newer build and refreshes it offline if found. Your "
-            "manager and modules stay. Does nothing if already up to date.")
-        self.update_button.clicked.connect(self.update_requested.emit)
-        self.uninstall_button = QPushButton("Uninstall Magisk")
+        self.uninstall_button = QPushButton("Remove Manager Root")
         self.uninstall_button.setToolTip(
             "Removes Magisk and restores the stock system image.")
         self.uninstall_button.clicked.connect(self.uninstall_requested.emit)
-        self.manager_button = QPushButton("Install manager")
+        for _b in (self.root_toggle_button, self.install_button, self.uninstall_button):
+            choice_row.addWidget(_b)
+        choice_row.addStretch(1)
+        root_layout.addLayout(choice_row)
+
+        # Row 2: what you can add once Manager Root is in. Separate row so the
+        # group never overflows the window and truncates its labels.
+        extras_row = QHBoxLayout()
+        self.update_button = QPushButton("Update")
+        self.update_button.setToolTip(
+            "Checks for a newer Magisk and refreshes it if found. Your manager "
+            "app and modules stay. Does nothing if already up to date.")
+        self.update_button.clicked.connect(self.update_requested.emit)
+        self.manager_button = QPushButton("Manager app")
         self.manager_button.setToolTip(
-            "Installs the Magisk app over ADB. Start the instance and enable ADB "
-            "in its Settings, Advanced, first.")
+            "Installs the Magisk app over ADB. Normally handled for you when "
+            "Manager Root is installed; this is the retry if that did not run.")
         self.manager_button.clicked.connect(self.install_manager_requested.emit)
-        self.remove_manager_button = QPushButton("Remove manager")
+        self.remove_manager_button = QPushButton("Remove app")
         self.remove_manager_button.setToolTip(
-            "Uninstalls the Magisk app. Leaves the system root in place.")
+            "Uninstalls the Magisk app. Leaves the root itself in place.")
         self.remove_manager_button.clicked.connect(self.uninstall_manager_requested.emit)
-        self.rezygisk_button = QPushButton("Install ReZygisk")
+        self.rezygisk_button = QPushButton("ReZygisk")
         self.rezygisk_button.setToolTip(
             "Adds Zygisk, which Zygisk modules need. Install this before LSPosed.")
         self.rezygisk_button.clicked.connect(self.install_rezygisk_requested.emit)
-        self.lsposed_button = QPushButton("Install LSPosed")
+        self.lsposed_button = QPushButton("LSPosed")
         self.lsposed_button.setToolTip(
             "The Xposed framework; needs ReZygisk first. Manage its modules from "
             "the LSPosed app once the instance restarts.")
         self.lsposed_button.clicked.connect(self.install_lsposed_requested.emit)
-        for _b in (self.root_toggle_button, self.install_button, self.update_button,
-                   self.uninstall_button, self.manager_button, self.remove_manager_button,
+        for _b in (self.update_button, self.manager_button, self.remove_manager_button,
                    self.rezygisk_button, self.lsposed_button):
-            root_row.addWidget(_b)
-        root_row.addStretch(1)
-        root_layout.addLayout(root_row)
+            extras_row.addWidget(_b)
+        extras_row.addStretch(1)
+        root_layout.addLayout(extras_row)
 
         self.hint_label = QLabel("")
         self.hint_label.setWordWrap(True)
@@ -220,7 +227,7 @@ class InstancesPage(QWidget):
         self.checkboxes = {}
 
         # Column headers, so "Root:" and "R/W:" aren't repeated on every row.
-        for col, title in ((0, "Instance"), (1, "Root"), (2, "R/W"), (3, "Magisk")):
+        for col, title in ((0, "Instance"), (1, "Root"), (2, "R/W"), (3, "Manager app")):
             header = QLabel(title)
             header.setObjectName("InstanceHeader")
             self.instance_layout.addWidget(header, 0, col)
@@ -272,16 +279,16 @@ class InstancesPage(QWidget):
     @staticmethod
     def _root_text(app_root: bool, magisk: dict | None) -> str:
         if app_root and magisk:
-            return "App + Magisk"
+            return "Native + Manager"      # the conflicting state, named plainly
         if magisk:
-            return "Magisk"
-        return "App" if app_root else "Off"
+            return "Manager"
+        return "Native" if app_root else "Off"
 
     @staticmethod
     def _magisk_text(magisk: dict | None) -> str:
         if not magisk:
             return "-"
-        return "yes" if "manager" in (magisk.get("components") or []) else "no app"
+        return "yes" if "manager" in (magisk.get("components") or []) else "missing"
 
     # --- selection -------------------------------------------------------
 
@@ -309,11 +316,9 @@ class InstancesPage(QWidget):
         if app_root and installed:
             return self._HINT_CONFLICT
         if app_root:
-            return self._HINT_APP
+            return self._HINT_NATIVE
         if not installed:
-            return self._HINT_INSTALL
-        if not manager:
-            return self._HINT_MANAGER
+            return self._HINT_CHOOSE
         return self._HINT_MODULES
 
     def _update(self, *_args) -> None:
@@ -334,20 +339,28 @@ class InstancesPage(QWidget):
         self.launch_button.setEnabled(uid is not None and not busy)
         self.restart_button.setEnabled(uid is not None and not busy)
 
-        # Show only the Magisk actions that apply, in flow order. A present but
-        # disabled button reads as "you could do this" when you can't.
+        # The Native Root button is a toggle, so its label says what the click
+        # will do rather than leaving the user to infer it from the grid.
+        self.root_toggle_button.setText(
+            "Disable Native Root" if app_root else "Native Root")
+
+        # Show only the actions that apply, in flow order. A present but disabled
+        # button reads as "you could do this" when you can't.
         one = uid is not None
         show_install = one and not installed
         self.install_button.setVisible(show_install)
-        self.update_button.setVisible(one and installed)
         self.uninstall_button.setVisible(one and installed)
+        self.update_button.setVisible(one and installed)
+        # The manager app installs itself as part of Manager Root; this is the
+        # retry for when that step could not run (instance never came up, ADB
+        # unreachable), so it only appears when the app is actually absent.
         self.manager_button.setVisible(one and installed and not manager)
         self.remove_manager_button.setVisible(one and manager)
         self.rezygisk_button.setVisible(one and manager)
         self.lsposed_button.setVisible(one and manager)
         self.install_button.setEnabled(show_install and not busy)
-        self.update_button.setEnabled(one and installed and not busy)
         self.uninstall_button.setEnabled(one and installed and not busy)
+        self.update_button.setEnabled(one and installed and not busy)
         self.manager_button.setEnabled(one and installed and not manager and not busy)
         self.remove_manager_button.setEnabled(one and manager and not busy)
         self.rezygisk_button.setEnabled(one and manager and not busy)
