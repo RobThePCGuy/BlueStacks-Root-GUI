@@ -30,6 +30,16 @@ from views.progress import StepReporter
 
 logger = logging.getLogger(__name__)
 
+# Roughly how many progress messages each operation emits. StepReporter turns
+# that into a moving percentage and clamps below 100, so an operation that talks
+# more than expected still never looks finished early. Approximate on purpose:
+# the backends report what they are doing, not how far along they are.
+_STEPS_INSTALL = 18
+_STEPS_UNINSTALL = 8
+_STEPS_UPDATE = 20
+_STEPS_MANAGER = 6
+_STEPS_MODULE = 7
+
 
 class MagiskController:
     def __init__(self, window):
@@ -89,7 +99,7 @@ class MagiskController:
                 if adb_exe else None)
 
         def job(progress):
-            steps = StepReporter(progress, expected=18)
+            steps = StepReporter(progress, _STEPS_INSTALL)
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
@@ -170,7 +180,8 @@ class MagiskController:
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = magisk_system.uninstall(data_path, progress=lambda m: progress(m, -1))
+            results = magisk_system.uninstall(
+                data_path, progress=StepReporter(progress, _STEPS_UNINSTALL))
             return results[-1] if results else "Magisk removed."
 
         w._run_async(job, "Removing Magisk from %s..." % uid)
@@ -211,8 +222,11 @@ class MagiskController:
         def job(progress):
             progress("Checking the latest Magisk...", 0)
             try:
+                # Small fixed percentages rather than -1: flipping the bar to its
+                # indeterminate animation for the lookup and back again reads as
+                # a glitch mid-operation.
                 latest_ver, latest_sha = magisk_payload.latest_identity(
-                    progress=lambda m: progress(m, -1))
+                    progress=lambda m: progress(m, 3))
             except RuntimeError as exc:
                 return "Could not check for an update: %s" % exc
             # Only claim "up to date" when we have a real installed hash to match:
@@ -223,11 +237,12 @@ class MagiskController:
                 return "Magisk is already up to date (%s)." % st.get("version", "?")
             step = ("Updating to %s" if installed_sha
                     else "Installed version unknown; refreshing to %s") % latest_ver
-            progress("%s; closing BlueStacks..." % step, -1)
+            progress("%s; closing BlueStacks..." % step, 5)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
             try:
-                results = magisk_system.update(data_path, progress=lambda m: progress(m, -1))
+                results = magisk_system.update(
+                    data_path, progress=StepReporter(progress, _STEPS_UPDATE))
             except magisk_system.RollbackFailedError as exc:
                 raise RuntimeError(
                     "Update failed AND the automatic cleanup also failed (%s). %s "
@@ -266,9 +281,8 @@ class MagiskController:
         data_path = instance["data_path"]
 
         def job(progress):
-            def relay(msg):
-                progress(msg, -1)
-            progress("Fetching the Magisk manager...", -1)
+            relay = StepReporter(progress, _STEPS_MANAGER)
+            relay("Fetching the Magisk manager...")
             apk = magisk_payload.fetch_apk(self._cache_dir(), progress=relay)
             msg = adb_handler.install_manager(adb_exe, port, apk, progress=relay)
             magisk_system.add_component(data_path, "manager")  # reflect it in the status
@@ -288,7 +302,8 @@ class MagiskController:
         data_path = instance["data_path"]
 
         def job(progress):
-            msg = adb_handler.uninstall_manager(adb_exe, port, progress=lambda m: progress(m, -1))
+            msg = adb_handler.uninstall_manager(
+                adb_exe, port, progress=StepReporter(progress, _STEPS_MANAGER))
             magisk_system.remove_component(data_path, "manager")
             w.show_notice.emit("Manager removed", msg)
             return msg
@@ -305,9 +320,8 @@ class MagiskController:
             return
 
         def job(progress):
-            def relay(msg):
-                progress(msg, -1)
-            progress("Fetching ReZygisk...", -1)
+            relay = StepReporter(progress, _STEPS_MODULE)
+            relay("Fetching ReZygisk...")
             zip_path = rezygisk_payload.fetch_module(self._cache_dir(), progress=relay)
             msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
             w.show_notice.emit("ReZygisk installed", msg)
@@ -325,9 +339,8 @@ class MagiskController:
             return
 
         def job(progress):
-            def relay(msg):
-                progress(msg, -1)
-            progress("Fetching LSPosed...", -1)
+            relay = StepReporter(progress, _STEPS_MODULE)
+            relay("Fetching LSPosed...")
             zip_path = lsposed_payload.fetch_module(self._cache_dir(), progress=relay)
             msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
             w.show_notice.emit("LSPosed installed", msg)

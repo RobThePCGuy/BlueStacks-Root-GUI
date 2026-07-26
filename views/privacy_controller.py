@@ -22,6 +22,12 @@ import ad_settings
 import constants
 import instance_handler
 import telemetry_block
+from views.progress import StepReporter
+
+# Rough message counts per operation; see StepReporter for why they are
+# approximate and why the bar stops short of 100 until the work really ends.
+_STEPS_ADS = 5
+_STEPS_HOSTS = 6
 
 
 class PrivacyController:
@@ -81,7 +87,8 @@ class PrivacyController:
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = ad_settings.apply(config_path, progress=lambda m: progress(m, -1))
+            results = ad_settings.apply(
+                config_path, progress=StepReporter(progress, _STEPS_ADS))
             return results[-1] if results else "Ads and telemetry turned off."
 
         w._run_async(job, "Turning off BlueStacks ads & telemetry...")
@@ -102,7 +109,8 @@ class PrivacyController:
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = ad_settings.remove(config_path, progress=lambda m: progress(m, -1))
+            results = ad_settings.remove(
+                config_path, progress=StepReporter(progress, _STEPS_ADS))
             return results[-1] if results else "BlueStacks ad settings restored."
 
         w._run_async(job, "Restoring BlueStacks ad settings...")
@@ -189,7 +197,8 @@ class PrivacyController:
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = telemetry_block.apply(data_path, progress=lambda m: progress(m, -1))
+            results = telemetry_block.apply(
+                data_path, progress=StepReporter(progress, _STEPS_HOSTS))
             return results[-1] if results else "Trackers blocked."
 
         w._run_async(job, "Blocking trackers in %s..." % uid)
@@ -211,7 +220,8 @@ class PrivacyController:
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = telemetry_block.remove(data_path, progress=lambda m: progress(m, -1))
+            results = telemetry_block.remove(
+                data_path, progress=StepReporter(progress, _STEPS_HOSTS))
             return results[-1] if results else "Block removed."
 
         w._run_async(job, "Removing the block from %s..." % uid)

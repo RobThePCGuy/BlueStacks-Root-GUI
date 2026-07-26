@@ -36,7 +36,7 @@ from views.magisk_controller import MagiskController
 from views.modules_page import ModulesPage
 from views.privacy_page import PrivacyPage
 from views.privacy_controller import PrivacyController
-from views.progress import OperationProgressBar, step_percent
+from views.progress import OperationProgressBar, StepReporter, step_percent
 from views import theme
 from views import engine_rules
 
@@ -626,8 +626,7 @@ class MainWindow(QWidget):
         port = adb_handler.instance_adb_port(instance["config_path"], instance["original_name"])
 
         def job(progress):
-            def adb_progress(msg):
-                progress(msg, -1)
+            adb_progress = StepReporter(progress, 6)   # push + flash chatter
             msg = adb_handler.install_module(adb_exe, port, zip_path, progress=adb_progress)
             self.show_notice.emit("Module installed", msg)
             return "Module installed. Close and reopen the instance to activate it."
