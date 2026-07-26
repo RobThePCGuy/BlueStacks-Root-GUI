@@ -108,10 +108,30 @@ class PrivacyController:
         w._run_async(job, "Restoring BlueStacks ad settings...")
 
     def handle_ads_lock(self, checked: bool) -> None:
-        """Pin/unpin bluestacks.conf read-only so the switches can't be reverted."""
+        """Lock/unlock bluestacks.conf read-only so the switches can't be reverted.
+
+        Locking is confirmed first, because its side effect is silent and easy to
+        lose an evening to: BlueStacks cannot write the file either, so changes
+        made in its own Settings look like they saved and are gone at the next
+        start, with no error anywhere. Declining leaves the box unticked, since
+        the refresh below re-reads the real lock state.
+        """
         w = self._window
         config_path = self._config_path()
         if not config_path:
+            return
+        if checked and not w._confirm(
+                "Lock the config file",
+                "Lock bluestacks.conf so BlueStacks can't turn these back on?",
+                "<p>Marks the file read-only. BlueStacks re-enables some of these "
+                "switches every time it starts, mostly the stats beacons, and this "
+                "is what stops it.</p>"
+                "<p><b>While it is locked, BlueStacks cannot save its own settings.</b> "
+                "Anything you change in BlueStacks' Settings will look like it "
+                "worked and be gone next start, with no error. Untick this box "
+                "before changing settings in BlueStacks, then tick it again "
+                "afterwards.</p>"):
+            self.refresh_statuses()      # puts the box back to its real state
             return
         try:
             if checked:
