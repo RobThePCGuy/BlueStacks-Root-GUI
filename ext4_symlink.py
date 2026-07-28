@@ -191,12 +191,55 @@ def _ps_single_quote(s: str) -> str:
     return s.replace("'", "''")
 
 
-def _disk_number(vhd_path: str) -> int | None:
-    """OS disk number of the attached VHD (== PhysicalDriveN index)."""
+_ASSOC_DISK_RE = re.compile(r"Associated disk#\s*:\s*(\d+)", re.IGNORECASE)
+_ASSOC_DISK_FIELD_RE = re.compile(r"Associated disk#", re.IGNORECASE)
+
+
+def _disk_number_via_diskpart(vhd_path: str) -> tuple[int | None, bool]:
+    """``(disk_number, parsed)`` from ``diskpart``'s own ``detail vdisk``.
+
+    diskpart already knows which disk it just attached and prints it as
+    ``Associated disk#: 2``, so asking it costs one diskpart run (~1.6s) where
+    the ``Get-Disk`` route costs ~17s -- almost all of which is PowerShell cold-
+    loading the Storage/CIM providers rather than any disk work. That fires
+    twice per attach/detach cycle and twice per disk per install, so it was the
+    single largest component of the user's wait.
+
+    ``parsed`` says whether the output was understood at all, which is what lets
+    the caller fall back safely: the field name is English diskpart text, so a
+    localised Windows must not silently look like "no disk attached".
+    """
+    r = _diskpart('select vdisk file="%s"\ndetail vdisk\n' % vhd_path)
+    out = r.stdout or ""
+    m = _ASSOC_DISK_RE.search(out)
+    if m:
+        return int(m.group(1)), True
+    if _ASSOC_DISK_FIELD_RE.search(out):
+        return None, True          # field present, no number => detached
+    return None, False             # unrecognised output => caller falls back
+
+
+def _disk_number_via_get_disk(vhd_path: str) -> int | None:
+    """OS disk number via PowerShell ``Get-Disk``. Slow (~17s) but locale-proof."""
     r = _run(["powershell", "-NoProfile", "-Command",
               "(Get-Disk | Where-Object { $_.Location -eq '%s' }).Number" % _ps_single_quote(vhd_path)])
     out = (r.stdout or "").strip()
     return int(out) if out.isdigit() else None
+
+
+def _disk_number(vhd_path: str) -> int | None:
+    """OS disk number of the attached VHD (== PhysicalDriveN index), or None.
+
+    Fast path first, ``Get-Disk`` only when diskpart's output isn't recognised.
+    Both agree in both states -- attached and detached -- which matters because
+    :func:`_detach` treats ``None`` as proof the disk is gone.
+    """
+    number, parsed = _disk_number_via_diskpart(vhd_path)
+    if parsed:
+        return number
+    logger.debug("diskpart 'detail vdisk' not recognised (localised Windows?); "
+                 "falling back to Get-Disk for %s", vhd_path)
+    return _disk_number_via_get_disk(vhd_path)
 
 
 def _cyg_device(disk_number: int, offset: int) -> str:
