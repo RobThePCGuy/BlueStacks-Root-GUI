@@ -189,15 +189,42 @@ def _shell_single_quote(s: str) -> str:
     return s.replace("'", "'\\''")
 
 
+def magisk_version_code(adb_exe: str, serial: str, runner: Runner = _run) -> Optional[int]:
+    """The running daemon's MAGISK_VER_CODE, or None if it can't be read.
+
+    ``magisk -V`` prints the numeric version code and nothing else. None means
+    "couldn't tell" (no root shell, Magisk absent, unexpected output) and must
+    never be treated as "too old" -- a version gate that fires on an unreadable
+    version would block flashing on any instance whose shell is momentarily
+    unavailable.
+    """
+    try:
+        cp = runner([adb_exe, "-s", serial, "shell", "su", "-c", "magisk -V"])
+    except Exception:  # noqa: BLE001 - unreadable version is not a failure
+        logger.debug("magisk -V failed", exc_info=True)
+        return None
+    out = ((cp.stdout or "") + (cp.stderr or "")).strip()
+    m = re.search(r"\b(\d{4,6})\b", out)
+    return int(m.group(1)) if m else None
+
+
 def install_module(adb_exe: str, port: Optional[int], local_zip: str,
                    progress: Optional[Callable[[str], None]] = None,
-                   runner: Runner = _run) -> str:
+                   runner: Runner = _run,
+                   min_magisk_ver_code: Optional[int] = None) -> str:
     """Push ``local_zip`` to a running instance and flash it via Magisk directly.
 
     Runs ``magisk --install-module`` over an ADB root shell (the same command we
     flash by hand). On success the module is installed and only needs a reboot.
     If the root shell / Magisk isn't reachable, the zip is left in the guest's
     Download folder and a RuntimeError explains how to flash it manually.
+
+    ``min_magisk_ver_code`` is the module's own MAGISK_VER_CODE requirement (its
+    ``customize.sh`` enforces one and aborts mid-flash otherwise). Checking it
+    here turns that into a clear refusal before anything is pushed. Callers that
+    have no requirement pass nothing and no check runs; an *unreadable* version
+    also proceeds, since a gate that fires on "couldn't tell" would block flashes
+    on a healthy instance.
     """
     def _p(msg):
         logger.info(msg)
@@ -216,6 +243,15 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
     # appears; this is a silent belt-and-suspenders confirm.
     _p("Confirming ADB root access...")
     _ensure_su_policy(adb_exe, serial, runner)
+
+    if min_magisk_ver_code is not None:
+        have = magisk_version_code(adb_exe, serial, runner)
+        if have is not None and have < min_magisk_ver_code:
+            raise RuntimeError(
+                "%s needs Magisk %d or newer, but this instance is running %d. "
+                "Update the root payload first -- flashing now would fail partway "
+                "through the module's own install script."
+                % (name, min_magisk_ver_code, have))
 
     tmp = "/data/local/tmp/" + name
     _p("Pushing %s..." % name)
