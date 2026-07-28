@@ -54,6 +54,19 @@ if __name__ == "__main__":
     try:
         logger.info("Starting %s (admin=%s, log=%s)",
                     constants.APP_NAME, admin.is_admin(), LOG_PATH)
+
+        # Declare our own taskbar identity before any window exists. Without
+        # this Windows groups the window under whatever host process it sees
+        # (python.exe when run from source), so the taskbar shows the wrong
+        # icon and a pinned shortcut opens a second, separate button. Must
+        # happen before the first window is created to take effect.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                constants.APP_ID)
+        except Exception:  # noqa: BLE001 - cosmetic only, never block startup
+            logger.debug("could not set AppUserModelID", exc_info=True)
+
         app = QApplication(sys.argv)
 
         # Held for the lifetime of the process (module-level `if __name__`

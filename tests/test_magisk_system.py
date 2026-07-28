@@ -61,17 +61,6 @@ def _dir_listing_run(listings):
     return run
 
 
-def test_list_databin_parses_names_skipping_dots_and_symlink_targets(monkeypatch):
-    sample = "\n".join([
-        " 3801090   40700 (2)   0   0   4096 19-Jul-2026 12:38 .",
-        " 3801089   40700 (2)   0   0   4096 19-Jul-2026 12:06 ..",
-        " 3801091  100755 (1)   0   0   2260144 19-Jul-2026 12:38 busybox",
-        " 3801092  120777 (7)   0   0   9 19-Jul-2026 12:38 sulink -> busybox",
-    ])
-    monkeypatch.setattr(ms._es, "_run", _fake_run(sample))
-    assert ms._list_dir("dev", ms._DATABIN, {}) == ["busybox", "sulink"]
-
-
 def test_clean_dir_commands_removes_actual_contents_then_rmdir(monkeypatch):
     monkeypatch.setattr(ms._es, "_run", _fake_run(
         " 1 100755 (1) 0 0 5 d t foo\n 2 100755 (1) 0 0 5 d t bar\n"))
@@ -79,11 +68,15 @@ def test_clean_dir_commands_removes_actual_contents_then_rmdir(monkeypatch):
         "rm /x/y/foo", "rm /x/y/bar", "rmdir /x/y"]
 
 
-def test_list_dir_typed_flags_directories_not_files_or_symlinks(monkeypatch):
+def test_list_dir_typed_flags_dirs_skips_dots_and_strips_symlink_targets(monkeypatch):
+    # "." / ".." must be skipped or a clean-out would try to rm the directory
+    # from inside itself; a symlink must yield its own name, not its target.
     sample = "\n".join([
-        " 1  40755 (2)   0   0   4096 19-Jul-2026 12:38 chromeos",   # dir
-        " 2 100755 (1)   0   0   5    19-Jul-2026 12:38 busybox",    # file
-        " 3 120777 (7)   0   0   9    19-Jul-2026 12:38 s -> busybox",  # symlink
+        " 1  40700 (2)   0   0   4096 19-Jul-2026 12:38 .",
+        " 2  40700 (2)   0   0   4096 19-Jul-2026 12:06 ..",
+        " 3  40755 (2)   0   0   4096 19-Jul-2026 12:38 chromeos",   # dir
+        " 4 100755 (1)   0   0   5    19-Jul-2026 12:38 busybox",    # file
+        " 5 120777 (7)   0   0   9    19-Jul-2026 12:38 s -> busybox",  # symlink
     ])
     monkeypatch.setattr(ms._es, "_run", _fake_run(sample))
     assert ms._list_dir_typed("dev", "/x", {}) == [

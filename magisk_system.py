@@ -208,11 +208,6 @@ def _list_dir_typed(device: str, ext4_dir: str, env: dict) -> list[tuple[str, bo
     return entries
 
 
-def _list_dir(device: str, ext4_dir: str, env: dict) -> list[str]:
-    """Names currently inside ``ext4_dir`` (empty if it's absent)."""
-    return [name for name, _ in _list_dir_typed(device, ext4_dir, env)]
-
-
 def _clean_dir_commands(device: str, ext4_dir: str, env: dict) -> list[str]:
     """debugfs commands to remove whatever is *actually* in ``ext4_dir`` and then
     the dir itself -- covers a prior/foreign install, not just our own names.

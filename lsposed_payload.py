@@ -14,7 +14,7 @@ Like the other payloads, the module is **downloaded on demand, not vendored**:
 fetched from LSPosed's own GitHub release, SHA-256-verified, and cached. We pin
 the **zygisk** variant (the riru variant is for the older Riru loader we don't
 use). Bumping the version is a one-line change: update ``MODULE_URL`` +
-``MODULE_SHA256`` (+ ``MODULE_SIZE``) together.
+``MODULE_SHA256`` + ``MODULE_VERSION`` together.
 
 Credit: LSPosed (c) LSPosed Developers, GPLv3.
 """
@@ -25,7 +25,7 @@ import os
 import payload_fetch
 
 # --- Pinned module (official release, hash-locked) -------------------------
-# One-line version bump: change URL + SHA256 (+ SIZE) together. Use the *zygisk*
+# One-line version bump: change URL + SHA256 + VERSION together. Use the *zygisk*
 # asset, not the riru one.
 MODULE_NAME = "LSPosed-v1.9.2-7024-zygisk-release.zip"
 MODULE_URL = (
@@ -33,8 +33,7 @@ MODULE_URL = (
     "LSPosed-v1.9.2-7024-zygisk-release.zip"
 )
 MODULE_SHA256 = "0ebc6bcb465d1c4b44b7220ab5f0252e6b4eb7fe43da74650476d2798bb29622"
-MODULE_SIZE = 2462055
-MODULE_VERSION = "v1.9.2 (7024)"  # human-readable; move in lockstep with the pin
+MODULE_VERSION = "v1.9.2 (7024)"  # shown in progress; move in lockstep with the pin
 
 
 def fetch_module(cache_dir: str, progress=None) -> str:
@@ -48,4 +47,5 @@ def fetch_module(cache_dir: str, progress=None) -> str:
     os.makedirs(cache_dir, exist_ok=True)
     dest = os.path.join(cache_dir, MODULE_NAME)
     return payload_fetch.fetch_verified(
-        MODULE_URL, dest, MODULE_SHA256, label="LSPosed module", progress=progress)
+        MODULE_URL, dest, MODULE_SHA256,
+        label="LSPosed %s" % MODULE_VERSION, progress=progress)

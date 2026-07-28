@@ -323,7 +323,9 @@ class MagiskController:
             relay = StepReporter(progress, _STEPS_MODULE)
             relay("Fetching ReZygisk...")
             zip_path = rezygisk_payload.fetch_module(self._cache_dir(), progress=relay)
-            msg = adb_handler.install_module(adb_exe, port, zip_path, progress=relay)
+            msg = adb_handler.install_module(
+                adb_exe, port, zip_path, progress=relay,
+                min_magisk_ver_code=rezygisk_payload.MIN_MAGISK_VER_CODE)
             w.show_notice.emit("ReZygisk installed", msg)
             return "%s Reboot the instance to activate Zygisk." % msg
 
