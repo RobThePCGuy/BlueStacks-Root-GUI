@@ -6,6 +6,7 @@ module's two hard-coded locations at it.
 """
 from __future__ import annotations
 
+import os
 import plistlib
 import struct
 
@@ -106,14 +107,25 @@ def test_setting_plist_overrides_the_default_location(air, tmp_path, monkeypatch
     assert inst["app_path"] == str(moved)
 
 
-def test_bundled_tool_requires_executability(air):
+def test_bundled_tool_finds_an_executable(air):
     app, _ = air
     adb = app / "Contents" / "MacOS" / "hd-adb"
     adb.write_bytes(b"#!/bin/sh\n")
-    # Present but not executable is a broken install, not a usable adb.
-    assert macos_locator.bundled_tool(str(app), "hd-adb") is None
     adb.chmod(0o755)
     assert macos_locator.bundled_tool(str(app), "hd-adb") == str(adb)
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows os.access(X_OK) is equivalent to R_OK, so every existing "
+           "file reads as executable and this distinction cannot be made")
+def test_bundled_tool_rejects_a_non_executable(air):
+    """Present but not executable is a broken install, not a usable adb."""
+    app, _ = air
+    adb = app / "Contents" / "MacOS" / "hd-adb"
+    adb.write_bytes(b"#!/bin/sh\n")
+    adb.chmod(0o644)
+    assert macos_locator.bundled_tool(str(app), "hd-adb") is None
 
 
 def test_root_image_path_points_into_the_bundle(air):
