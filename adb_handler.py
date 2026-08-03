@@ -20,9 +20,12 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-# BlueStacks ships its own adb as HD-Adb.exe next to HD-Player.exe. Plain adb.exe
-# is a fallback for unusual layouts.
-_ADB_NAMES = ("HD-Adb.exe", "adb.exe")
+# BlueStacks ships its own adb next to the player: HD-Adb.exe on Windows,
+# lower-case `hd-adb` in BlueStacks.app/Contents/MacOS on Air. Plain adb is a
+# fallback for unusual layouts. All names are tried on both platforms -- the
+# lookup is a file-exists check, so the extra candidates cost nothing and keep
+# this list from needing a platform branch.
+_ADB_NAMES = ("HD-Adb.exe", "adb.exe", "hd-adb", "adb")
 
 # bluestacks.conf: bst.instance.<name>.status.adb_port="5555"
 _ADB_PORT_KEY = ".status.adb_port"
@@ -56,13 +59,16 @@ def _run_install(cmd: list) -> subprocess.CompletedProcess:
 
 
 def find_adb(install_dirs) -> Optional[str]:
-    """First HD-Adb.exe / adb.exe found in any of ``install_dirs``, else None."""
+    """First bundled adb found in any of ``install_dirs``, else None."""
     for d in install_dirs:
         if not d:
             continue
         for name in _ADB_NAMES:
             cand = os.path.join(d, name)
-            if os.path.isfile(cand):
+            # Executable, not merely present: on macOS the bundle also contains
+            # non-executable data files, and handing a non-runnable path to
+            # subprocess would fail later with a far less obvious error.
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
                 return cand
     return None
 

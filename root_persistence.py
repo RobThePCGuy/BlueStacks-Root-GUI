@@ -19,18 +19,41 @@ There are two distinct mechanisms, and you need both handled:
 
 The lock is just the standard Windows FILE_ATTRIBUTE_READONLY bit, so it is
 trivially reversible (unlock, or untick the box) and leaves no residue.
+
+macOS: why there is no lock here
+--------------------------------
+The read-only trick does not port, for two independent reasons.
+
+1. It would not work. The Windows lock holds because ``MoveFileEx`` refuses to
+   replace a read-only file. BlueStacks Air saves its config the POSIX way --
+   write a temp file, then ``rename()`` over the original -- and ``rename()``
+   only needs the *directory* to be writable. Air was observed reverting
+   ``bst.feature.rooting`` to ``"0"`` on launch with the conf at mode 444, so a
+   chmod-based lock buys nothing. (``chflags uchg`` would block the rename, but
+   see below.)
+2. It would not matter. Air ships no guest ``su`` for those keys to unlock, so
+   nothing about rooting depends on their value -- ``macos_root`` injects ``su``
+   into the system image instead, and root survives regardless of what the
+   player writes back into ``bluestacks.conf``.
+
+So on macOS every function here is inert: locking reports "not locked" and the
+``unlocked()`` context manager passes straight through, which is exactly right
+for a config file nothing needs pinned.
 """
 from __future__ import annotations
 
 import contextlib
-import ctypes
 import logging
 import os
 import struct
-from ctypes import wintypes
 from typing import Iterator
 
 import integrity_patch
+import platform_support
+
+if platform_support.IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +61,12 @@ logger = logging.getLogger(__name__)
 FILE_ATTRIBUTE_READONLY = 0x01
 INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
 
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-_kernel32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
-_kernel32.GetFileAttributesW.restype = wintypes.DWORD
-_kernel32.SetFileAttributesW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
-_kernel32.SetFileAttributesW.restype = wintypes.BOOL
+if platform_support.IS_WINDOWS:
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.GetFileAttributesW.argtypes = [wintypes.LPCWSTR]
+    _kernel32.GetFileAttributesW.restype = wintypes.DWORD
+    _kernel32.SetFileAttributesW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+    _kernel32.SetFileAttributesW.restype = wintypes.BOOL
 
 
 def _get_attributes(path: str) -> int:
@@ -59,6 +83,8 @@ def _set_attributes(path: str, attrs: int) -> None:
 
 def is_locked(config_path: str) -> bool:
     """Return True if ``config_path`` currently has the read-only attribute."""
+    if not platform_support.IS_WINDOWS:
+        return False
     if not os.path.isfile(config_path):
         return False
     return bool(_get_attributes(config_path) & FILE_ATTRIBUTE_READONLY)
@@ -69,6 +95,8 @@ def lock(config_path: str) -> bool:
 
     Returns True if the attribute was changed, False if it was already locked.
     """
+    if not platform_support.IS_WINDOWS:
+        return False
     if not os.path.isfile(config_path):
         raise FileNotFoundError(config_path)
     attrs = _get_attributes(config_path)
@@ -85,6 +113,8 @@ def unlock(config_path: str) -> bool:
 
     Returns True if the attribute was changed, False if it was already writable.
     """
+    if not platform_support.IS_WINDOWS:
+        return False
     if not os.path.isfile(config_path):
         raise FileNotFoundError(config_path)
     attrs = _get_attributes(config_path)

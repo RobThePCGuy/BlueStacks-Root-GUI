@@ -10,6 +10,8 @@
 
 **A one-click tool to root BlueStacks 5.** It turns root access on and off from a simple window: no command line, no reverse-engineering, no hunting for an old version. Point it at your BlueStacks, click a couple of buttons, done.
 
+Windows is the primary platform. **BlueStacks Air on Apple Silicon Macs is also supported** — see [Option 3](#option-3-macos--bluestacks-air-apple-silicon) and [Rooting BlueStacks Air](#rooting-bluestacks-air-macos). Air needs a different method entirely, because unlike Windows BlueStacks it ships no `su` for the usual config flag to unlock.
+
 > [!TIP]
 > **The latest BlueStacks now roots, no downgrade required.** BlueStacks 5.22 added a security check that shut rooted instances down with *"Android system doesn't meet security requirements."* This tool patches that check out, so you can root the current build. Confirmed working on **5.22.232.1002 / Android 13**: the latest official build as of July 2026. If someone told you to downgrade to 5.21, you don't have to anymore.
 
@@ -24,6 +26,7 @@
   - [Rooting the Current BlueStacks (Patch Mode)](#rooting-the-current-bluestacks-patch-mode)
   - [Magisk Modules, Kitsune Mask & Older Builds](#magisk-modules-kitsune-mask--older-builds)
   - [Keep Root After Updates](#keep-root-after-updates)
+  - [Rooting BlueStacks Air (macOS)](#rooting-bluestacks-air-macos)
 - [Troubleshooting](#troubleshooting)
 - [How It Works](#how-it-works)
 - [Features](#features)
@@ -97,6 +100,27 @@ Output lands in the `dist/` folder.
 > [!NOTE]
 > You normally don't need to build by hand: pushing a version tag (`v*`) triggers the `release.yml` workflow, which builds this exact executable on a Windows runner and publishes it to **[Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases)** automatically.
 
+### Option 3: macOS — BlueStacks Air (Apple Silicon)
+
+Run from source; there is no packaged build yet.
+
+```bash
+git clone https://github.com/RobThePCGuy/BlueStacks-Root-GUI.git
+cd BlueStacks-Root-GUI
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+brew install e2fsprogs        # required: rooting edits the guest ext4
+python main.py
+```
+
+Two things are different from Windows, and both are one-time:
+
+1. **`brew install e2fsprogs`.** Rooting edits the Android system image with `debugfs`, which macOS does not ship. The Windows build bundles its own copy; the macOS one uses Homebrew's. The app tells you if it is missing.
+2. **Grant App Management.** Rooting writes back into `BlueStacks.app`, and since macOS Ventura that needs **System Settings → Privacy & Security → App Management** for whatever runs the tool (your terminal when running from source). You may need to quit and reopen it afterwards.
+
+You do **not** need `sudo`, and normally you will not see a password prompt at all. That is not a shortcut — it is the only thing that works. App Management is granted to an *application*, not to a user, so a root helper does **not** inherit your terminal's grant: running the copy as root fails where writing it directly succeeds. `Root.qcow2` is already mode `rw-rw-rw-`, so once App Management is granted the plain write goes through. (The tool still falls back to an authorization prompt for installs whose image genuinely is not user-writable.)
+
 ## Usage Guide
 
 The [Quick Start](#quick-start) covers the common case. This section has the full detail, plus the paths for Magisk/Kitsune modules and older builds. Launch the GUI **as administrator**: it opens on the **Dashboard**, auto-detects your install, and only shows the engine-patch button when a modern build (5.22.150.1014+) is present.
@@ -138,6 +162,35 @@ schtasks /Change /TN "BlueStacksHelper_nxt" /DISABLE
 
 > [!WARNING]
 > The scheduled task is the one that matters most. Some builds don't even install the `BstHdUpdaterSvc` service, so the `sc.exe` lines will report *"service does not exist,"* which is fine; they still ship the `BlueStacksHelper_nxt` scheduled task, which can update independently. Disable whichever exist. Setting `bst.auto_update="0"` in `bluestacks.conf` does **not** work; it is silently ignored.
+
+### Rooting BlueStacks Air (macOS)
+
+Set up per [Option 3](#option-3-macos--bluestacks-air-apple-silicon) first — `brew install e2fsprogs` and the App Management permission are both required.
+
+1. **Close BlueStacks**, then start the tool (`python main.py`). The Dashboard shows `AIR v5.21.x` and your data directory.
+2. Go to **Instances**, tick your instance, and click **"Root (all instances)"**.
+3. Wait. The pass takes a couple of minutes — most of it is unpacking and repacking a 1.7 GB image.
+4. **Start BlueStacks.** `su` is now at `/system/xbin/su`, on the guest `PATH`, so both `adb shell su` and root-checker apps see it:
+
+```console
+$ hd-adb shell "su -c id"
+uid=0(root) gid=0(root) groups=0(root),...
+```
+
+To undo, click the same button (now **"Remove Root (all instances)"**). It restores the pristine image from the backup the first root made.
+
+> [!NOTE]
+> On Air the button says *"all instances"* because it means it: every Air instance boots one shared system image, so there is no per-instance root. This also means a BlueStacks update wipes root — it replaces that image. The tool notices and stops reporting the instance as rooted; just click the button again.
+
+> [!TIP]
+> The Modules tab, the R/W toggle and the Magisk buttons are hidden on Air. They are not missing features to work around: Air has no `.bstk` files to flip, and the Magisk installer drives Windows VHDs through bundled `.exe` tools.
+
+> [!IMPORTANT]
+> **While rooted, `BlueStacks.app`'s code signature no longer validates.** `Root.qcow2` is a sealed resource of the bundle, so changing it invalidates the seal — `codesign --verify` and `spctl` both start failing. This is unavoidable for any change to the guest system, not something the tool works around. In practice BlueStacks still launches and runs normally, because macOS does not re-run Gatekeeper on an app that is already installed and has been opened.
+>
+> Undoing restores the backup **byte for byte**, which repairs the seal exactly. That is why the backup is kept until the last change is undone, and why undo restores it rather than editing the modification back out.
+
+Everything the tool put on disk lives in two places, both outside the bundle and both removed when you undo: `Root.qcow2.prepatch.bak` (the pristine image) and `Root.qcow2.modstate.json` (what is currently applied), in `/Users/Shared/Library/Application Support/BlueStacks/`.
 
 ## Troubleshooting
 
@@ -242,6 +295,23 @@ Both patches are located by byte signature rather than hard-coded offsets, so th
 > [!NOTE]
 > The patch-mode method, the `HD-Player.exe` / `HD-MultiInstanceManager.exe` engine patch **and** the offline `Data.vhdx` guest-`su` patch that root the latest BlueStacks, was contributed by **[@AndnixSH](https://github.com/AndnixSH)** in [PR #27](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/pull/27). See [Credits](#credits).
 
+**BlueStacks Air (macOS, Apple Silicon):** a third method, because neither of the above applies. Air is a different product — a QEMU/`libqvirt` VM running an **arm64** Android 13 guest, with its config at `/Users/Shared/Library/Application Support/BlueStacks/`.
+
+The important difference is that **Air ships no `su` at all.** Windows BlueStacks includes a guest `su` that `enable_root_access` merely *unlocks*, which is why flipping that flag roots it. Air's image has no `su`, no SuperSU and no Magisk anywhere in `/system` or its ramdisk — its init even tries to `import /init.superuser.rc` and logs that the file does not exist. The `enable_root_access` key still exists in Air's `bluestacks.conf`, and the player still resets `bst.feature.rooting` to `0` on every launch, but nothing reads them. **Setting those flags on Air does nothing.**
+
+So the tool *adds* an `su`:
+
+1. Converts `BlueStacks.app/Contents/img/Root.qcow2` to raw with BlueStacks' own bundled `qemu-img`, after backing it up outside the bundle.
+2. Writes a 223-byte statically-linked aarch64 `su` into the guest ext4 with `debugfs`, owned by root with mode `06755`. SELinux is **disabled** on Air, so a classic setuid binary is sufficient — no policy patching. The binary is generated, not downloaded or vendored (see `macos_su.py`, which includes its full assembly listing).
+3. Runs `e2fsck`, repacks to qcow2, and writes it back with one authorization prompt.
+
+Two consequences worth knowing:
+
+- **Root is install-wide, not per-instance.** Every Air instance boots that one shared image; there is no per-instance system image, so rooting covers all of them at once.
+- **A BlueStacks update removes root**, because it replaces that image. The tool fingerprints the image and reports "not rooted" once it changes, rather than claiming root you no longer have.
+
+Undo restores the pristine backup, so nothing about the change is one-way.
+
 ## Features
 
 - **Nav-Rail Layout**: A left navigation rail splits the app into four pages: **Dashboard** (install paths, engine-patch state, rooted-instance count), **Instances** (every per-instance action: Launch/Restart, R/W, and both root methods), **Modules** (push and flash a Magisk module), and **Privacy** (turn BlueStacks' own ads/telemetry off, plus an in-guest tracker block). A light/dark theme toggle sits in the header
@@ -276,9 +346,13 @@ Both patches are located by byte signature rather than hard-coded offsets, so th
   - `engine_rules.py`: Qt-free decision logic for patch-gating and update-revert detection (unit-testable without a `QApplication`)
 - `config_handler.py`: Reads/writes `bluestacks.conf`
 - `instance_handler.py`: Modifies `.bstk` files, handles processes
-- `registry_handler.py`: Reads BlueStacks paths and versions from the Windows Registry
+- `registry_handler.py`: The single detection entry point. Reads BlueStacks paths and versions from the Windows Registry, and delegates to `macos_locator.py` on macOS
 - `constants.py`: Shared constants (keys, filenames, modes, process list, patch-mode version cutoff, `APP_VERSION`)
-- `admin.py`: UAC elevation helpers (relaunch as administrator, network-drive-safe)
+- `admin.py`: UAC elevation helpers (relaunch as administrator, network-drive-safe); a no-op on macOS, which elevates per-operation instead
+- `platform_support.py`: Platform flags, and the `osascript` administrator prompt macOS uses for the one privileged step
+- `macos_locator.py`: Finds a BlueStacks Air install (app bundle, shared data dir, instances) and reports it in `registry_handler`'s shape
+- `macos_root.py`: Roots BlueStacks Air by injecting `su` into the shared `Root.qcow2` via bundled `qemu-img` + Homebrew `debugfs`, with a backup outside the bundle and an image fingerprint so a BlueStacks update can't leave a stale "rooted" claim
+- `macos_su.py`: Builds the 223-byte statically-linked aarch64 `su` that gets injected; full assembly listing in the module docstring
 - `adb_handler.py`: Pushes/flashes a module `.zip`, and installs/removes the Magisk manager app, over BlueStacks' bundled ADB
 - `integrity_patch.py` / `root_persistence.py`: Engine patches (5.22+ integrity bypass, keep root enabled) with `.prepatch.bak` backups
 - `su_patch.py` / `su_patch_offline.py`: Patch-mode app root; flips the guest `su` `isDeveloperMode` gate inside `Data.vhdx` (bundled VHD/VHDX + ext4 reader, no ADB required)
@@ -295,8 +369,10 @@ Both patches are located by byte signature rather than hard-coded offsets, so th
 
 See `requirements.txt`. Key dependencies:
 - PyQt5
-- pywin32
+- pywin32 (Windows only — marked with an environment marker so `pip install` works on macOS)
 - psutil
+
+On macOS, rooting also needs **e2fsprogs** (`brew install e2fsprogs`) for `debugfs`/`e2fsck`; the Windows build bundles its own copy in `tools/e2fsprogs/`. `qemu-img` and `adb` come from the BlueStacks Air bundle itself, so there is nothing to install for those.
 
 ### Running Tests
 

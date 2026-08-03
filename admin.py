@@ -13,15 +13,30 @@ the app is launched from such a drive, a naive relaunch of ``Y:\\...\\main.py``
 fails because ``Y:`` doesn't exist for the elevated process, so it never starts.
 We therefore rewrite the relaunch path to its UNC form
 (``\\\\vmware-host\\Shared Folders\\...``), which the elevated session can reach.
+
+macOS note
+----------
+None of this applies to BlueStacks Air. Air keeps its config, instance disks
+and logs under ``/Users/Shared``, all writable by the logged-in user, so the app
+runs unelevated and elevates only for the single operation that needs it -- see
+``platform_support.run_elevated``. The functions here degrade to "already fine,
+carry on" rather than being absent, so ``main.py`` can call ``ensure_admin()``
+unconditionally.
 """
 from __future__ import annotations
 
-import ctypes
 import logging
 import os
 import subprocess
 import sys
-from ctypes import wintypes
+
+import platform_support
+
+# ctypes.wintypes raises ValueError on import on non-Windows, so both the
+# Windows-only imports are conditional.
+if platform_support.IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +46,10 @@ ERROR_SUCCESS = 0
 
 def is_admin() -> bool:
     """Return True if the current process is running with administrator rights."""
+    if not platform_support.IS_WINDOWS:
+        # There is no session-wide elevation to detect on macOS; report the
+        # truth (are we root?) without implying the app ought to be.
+        return os.geteuid() == 0
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:  # noqa: BLE001 - any failure means "assume not admin"
@@ -81,6 +100,9 @@ def relaunch_as_admin() -> bool:
     Returns True if an elevated instance was started (caller should then exit),
     or False if elevation was declined or failed.
     """
+    if not platform_support.IS_WINDOWS:
+        # No session-wide elevation on macOS -- see the module docstring.
+        return False
     if is_admin():
         return False
 
@@ -127,7 +149,12 @@ def ensure_admin() -> None:
     (unelevated) process exits. If they decline, this process keeps running so
     the app still opens -- it will simply surface permission errors when it tries
     to patch or kill processes.
+
+    On macOS this is a no-op: the app is meant to run as the logged-in user and
+    elevates per-operation instead (``platform_support.run_elevated``).
     """
+    if not platform_support.IS_WINDOWS:
+        return
     if is_admin():
         return
     if relaunch_as_admin():

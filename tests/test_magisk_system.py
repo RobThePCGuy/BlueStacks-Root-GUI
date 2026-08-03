@@ -12,6 +12,17 @@ from types import SimpleNamespace
 import pytest
 
 import magisk_system as ms
+import platform_support
+
+# `_cygpath` maps a Windows path onto the Cygwin debugfs that ships with the
+# Windows build (``C:\x`` -> ``/cygdrive/c/x``). ``os.path.splitdrive`` has no
+# drive to split off Windows, so only the tests that assert the *converted*
+# string are Windows-bound; everything else in this module is platform-neutral
+# and runs on macOS too. Magisk itself is Windows-only -- the Air build hides
+# it (see ``views.instances_page.set_air_mode``).
+windows_paths_only = pytest.mark.skipif(
+    not platform_support.IS_WINDOWS,
+    reason="asserts Cygwin conversion of Windows drive paths")
 
 
 def test_write_commands_cd_precedes_bare_quoted_writes():
@@ -107,6 +118,7 @@ def test_clean_dir_commands_recurses_subdir_before_parent_rmdir(monkeypatch):
     ]
 
 
+@windows_paths_only
 def test_databin_extra_commands_writes_scripts_and_stub():
     # Kyubi extras: the module-install gate script + the manager stub (no chromeos).
     extras = {
@@ -129,6 +141,7 @@ def test_databin_extra_commands_writes_scripts_and_stub():
     assert not any("chromeos" in c for c in cmds)
 
 
+@windows_paths_only
 def test_service_d_grant_commands_creates_dir_when_absent():
     cmds = ms._service_d_grant_commands(r"C:\w\00-bsrgui-adbgrant.sh", dir_exists=False)
     sd = ms._SERVICE_D
@@ -181,6 +194,7 @@ def test_verify_staged_checks_extras_mode_and_owner(monkeypatch):
     assert bad == ["stub.apk"]
 
 
+@windows_paths_only
 def test_system_write_commands_footprint_and_perms():
     srcs = {n: r"C:\a\%s" % n for n in
             ("config", "magisk32", "magisk64", "magiskinit", "magiskpolicy",

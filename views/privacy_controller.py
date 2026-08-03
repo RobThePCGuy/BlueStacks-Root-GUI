@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import QMessageBox
 import ad_settings
 import constants
 import instance_handler
+import macos_hosts
 import telemetry_block
 from views.progress import StepReporter
 
@@ -44,10 +45,21 @@ class PrivacyController:
                 return path
         return None
 
+    @staticmethod
+    def _hosts_status(data):
+        """In-guest block state, from whichever backend owns this install.
+
+        Both report the same shape, so the page renders them identically; only
+        the place the block lives differs (``Root.vhd`` vs ``Root.qcow2``).
+        """
+        if data.get("air_mode"):
+            return macos_hosts.status(data.get("app_path"), data["user_path"])
+        return telemetry_block.status(data["data_path"])
+
     def refresh_statuses(self) -> None:
         """Fill the Privacy tab: global ad-switch state + per-instance blocks."""
         w = self._window
-        statuses = {uid: telemetry_block.status(data["data_path"])
+        statuses = {uid: self._hosts_status(data)
                     for uid, data in w.instance_data.items()}
         w.privacy_page.set_instances(statuses)
 
@@ -188,17 +200,23 @@ class PrivacyController:
                 "<p>This reaches apps running <b>inside</b> the emulator. It does "
                 "not affect BlueStacks' own ads, which are served by the Windows "
                 "player and never pass through the guest.</p>"
-                "<p>One master Root.vhd is shared by every instance of this "
+                "<p>One master system image is shared by every instance of this "
                 "Android version, so this applies to all of them.</p>"):
             return
         data_path = instance["data_path"]
+        air = instance.get("air_mode")
+        app_path = instance.get("app_path")
 
         def job(progress):
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = telemetry_block.apply(
-                data_path, progress=StepReporter(progress, _STEPS_HOSTS))
+            reporter = StepReporter(progress, _STEPS_HOSTS)
+            if air:
+                results = macos_hosts.apply(app_path, progress=reporter,
+                                            data_dir=instance["user_path"])
+            else:
+                results = telemetry_block.apply(data_path, progress=reporter)
             return results[-1] if results else "Trackers blocked."
 
         w._run_async(job, "Blocking trackers in %s..." % uid)
@@ -215,13 +233,19 @@ class PrivacyController:
                 "shut down (all BlueStacks processes close first).</p>"):
             return
         data_path = instance["data_path"]
+        air = instance.get("air_mode")
+        app_path = instance.get("app_path")
 
         def job(progress):
             progress("Closing BlueStacks...", 0)
             instance_handler.terminate_bluestacks()
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
-            results = telemetry_block.remove(
-                data_path, progress=StepReporter(progress, _STEPS_HOSTS))
+            reporter = StepReporter(progress, _STEPS_HOSTS)
+            if air:
+                results = macos_hosts.remove(app_path, progress=reporter,
+                                             data_dir=instance["user_path"])
+            else:
+                results = telemetry_block.remove(data_path, progress=reporter)
             return results[-1] if results else "Block removed."
 
         w._run_async(job, "Removing the block from %s..." % uid)

@@ -182,6 +182,8 @@ class InstancesPage(QWidget):
         self._instance_data: dict[str, dict] = {}
         self._magisk: dict[str, dict | None] = {}
         self._busy = False
+        # Set from the detected installation; see set_air_mode().
+        self._air_mode = False
         self._update()
 
     # --- state in --------------------------------------------------------
@@ -321,6 +323,18 @@ class InstancesPage(QWidget):
             return self._HINT_CHOOSE
         return self._HINT_MODULES
 
+    def set_air_mode(self, air: bool) -> None:
+        """Reduce the page to the actions BlueStacks Air actually supports.
+
+        Air has no R/W state to toggle (no .bstk files, one shared read-only
+        system image) and no Magisk path (its offline installer drives Windows
+        VHDs through bundled e2fsprogs ``.exe``s). Those buttons are hidden
+        rather than disabled: a greyed-out button reads as "not right now",
+        which would be a lie -- they will never apply here.
+        """
+        self._air_mode = air
+        self._update()
+
     def _update(self, *_args) -> None:
         busy = self._busy
         any_ticked = bool(self.selected_ids())
@@ -330,6 +344,7 @@ class InstancesPage(QWidget):
         app_root = bool(data and data.get("root_enabled"))
         installed = bool(st)
         manager = installed and "manager" in (st.get("components") or [])
+        air = getattr(self, "_air_mode", False)
 
         self.hint_label.setText(self._hint_text(uid, app_root, installed, manager))
 
@@ -341,12 +356,28 @@ class InstancesPage(QWidget):
 
         # The Native Root button is a toggle, so its label says what the click
         # will do rather than leaving the user to infer it from the grid.
-        self.root_toggle_button.setText(
-            "Disable Native Root" if app_root else "Native Root")
+        if air:
+            # "Native Root" would understate it: on Air this installs su into
+            # the shared system image, so it roots every instance at once.
+            self.root_toggle_button.setText(
+                "Remove Root (all instances)" if app_root else "Root (all instances)")
+            self.root_toggle_button.setToolTip(
+                "Installs su into the Android system image BlueStacks Air "
+                "shares between all instances. Air ships no su of its own, so "
+                "this is what root means here.\n\n"
+                "While it is applied, BlueStacks.app's code signature no longer "
+                "validates (the image is a sealed resource) -- the app still "
+                "runs. Undoing from this same button restores the original "
+                "image byte for byte and repairs that.")
+        else:
+            self.root_toggle_button.setText(
+                "Disable Native Root" if app_root else "Native Root")
+
+        self.rw_toggle_button.setVisible(not air)
 
         # Show only the actions that apply, in flow order. A present but disabled
         # button reads as "you could do this" when you can't.
-        one = uid is not None
+        one = uid is not None and not air
         show_install = one and not installed
         self.install_button.setVisible(show_install)
         self.uninstall_button.setVisible(one and installed)

@@ -42,6 +42,21 @@ class NavRail(QFrame):
         layout.addStretch(1)
         self.select(DASHBOARD)
 
+    def set_destination_visible(self, key: str, visible: bool) -> None:
+        """Show or hide one destination.
+
+        Used to drop Modules on BlueStacks Air, whose module install path is
+        Magisk-over-ADB and does not exist there. If the hidden destination is
+        the current one, fall back to Dashboard so the rail cannot end up with
+        nothing selected and a page the user can no longer navigate away from.
+        """
+        btn = self._buttons.get(key)
+        if btn is None:
+            return
+        btn.setVisible(visible)
+        if not visible and self.current() == key:
+            self.select(DASHBOARD)
+
     def select(self, key: str) -> None:
         for k, btn in self._buttons.items():
             btn.setChecked(k == key)

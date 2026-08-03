@@ -41,11 +41,20 @@ def parse_version(s):
 APP_SOURCE_NXT = "NXT"
 APP_SOURCE_MSI = "MSI"
 APP_SOURCE_NXT_CN = "CN"
+# BlueStacks Air (macOS / Apple Silicon). Detected by macos_locator rather than
+# the registry, and rooted by injecting su into the shared system image -- Air
+# ships no guest su for the conf keys to unlock. See macos_root.
+APP_SOURCE_AIR = "AIR"
 
 
 MODE_READWRITE = "Normal"
 MODE_READONLY = "Readonly"
 MODE_UNKNOWN = "Unknown"
+# BlueStacks Air has no R/W concept to report: it ships no .bstk files, and
+# every instance boots one shared, read-only system image from the app bundle.
+# Distinct from MODE_UNKNOWN, which means "we could not tell" and causes an
+# instance to be hidden -- "N/A" is a definite answer, so Air instances list.
+MODE_NOT_APPLICABLE = "N/A"
 
 
 FASTBOOT_VDI = "fastboot.vdi"
@@ -83,6 +92,18 @@ REGEX_BSTK_READONLY_PATTERN = re.compile(
 # locator only accepted rax/rcx/rsi/rdi, silently missing an su binary whose
 # isDeveloperMode() lea happened to target rdx/rbx/rbp).
 RIP_LEA_MODRM = frozenset({0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D})
+
+
+# BlueStacks Air's processes. The player runs its VM in-process through
+# libqvirt.dylib rather than spawning the bundled qemu-system-aarch64, but the
+# uninstaller kills that name too, so both are covered.
+MACOS_PROCESS_NAMES = [
+    "BlueStacks",
+    "BlueStacks Air multi-instance manager",
+    "qemu-system-aarch64",
+    "hd-adb",
+    "HD-LogCollector",
+]
 
 
 BLUESTACKS_PROCESS_NAMES = [

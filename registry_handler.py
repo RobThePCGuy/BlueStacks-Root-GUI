@@ -1,17 +1,43 @@
 from __future__ import annotations
 
-import winreg
 import logging
 import os
+import sys
 from typing import Any
 
 import constants
+import platform_support
 
 logger = logging.getLogger(__name__)
 
+# winreg only exists on Windows. Importing it unconditionally made this module
+# -- and therefore MainWindow, which imports it at module scope -- unimportable
+# on macOS. Detection dispatches by platform below, so the import can be
+# conditional without any caller needing to care.
+if platform_support.IS_WINDOWS:
+    import winreg
+
 Installation = dict[str, Any]
 
+
 def get_all_bluestacks_installations() -> list[Installation]:
+    """Every detected BlueStacks install, whichever platform we are on.
+
+    This stays the single detection entry point for the whole app: on macOS it
+    delegates to ``macos_locator``, which returns the same dict shape from the
+    filesystem instead of the registry.
+    """
+    if platform_support.IS_MACOS:
+        import macos_locator
+        return macos_locator.get_all_bluestacks_installations()
+    if not platform_support.IS_WINDOWS:
+        logger.warning("Unsupported platform %s; no BlueStacks detection available.",
+                       sys.platform)
+        return []
+    return _get_windows_installations()
+
+
+def _get_windows_installations() -> list[Installation]:
     installations: list[Installation] = []
     reg_sources = {
         constants.APP_SOURCE_NXT: constants.REGISTRY_BASE_PATH,
