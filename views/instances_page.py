@@ -229,7 +229,13 @@ class InstancesPage(QWidget):
         self.checkboxes = {}
 
         # Column headers, so "Root:" and "R/W:" aren't repeated on every row.
-        for col, title in ((0, "Instance"), (1, "Root"), (2, "R/W"), (3, "Manager app")):
+        # R/W and Manager app are Windows-only concepts; on Air the columns are
+        # dropped entirely rather than filled with "Off"/"-", which would read
+        # as "a thing you have switched off" instead of "not a thing here".
+        air = getattr(self, "_air_mode", False)
+        columns = ((0, "Instance"), (1, "Root")) if air else (
+            (0, "Instance"), (1, "Root"), (2, "R/W"), (3, "Manager app"))
+        for col, title in columns:
             header = QLabel(title)
             header.setObjectName("InstanceHeader")
             self.instance_layout.addWidget(header, 0, col)
@@ -266,8 +272,9 @@ class InstancesPage(QWidget):
 
             self.instance_layout.addWidget(checkbox, row, 0)
             self.instance_layout.addWidget(root_label, row, 1)
-            self.instance_layout.addWidget(rw_label, row, 2)
-            self.instance_layout.addWidget(magisk_label, row, 3)
+            if not air:
+                self.instance_layout.addWidget(rw_label, row, 2)
+                self.instance_layout.addWidget(magisk_label, row, 3)
             self.checkboxes[unique_id] = checkbox
 
     @staticmethod
@@ -312,9 +319,19 @@ class InstancesPage(QWidget):
 
     # --- derived UI ------------------------------------------------------
 
+    # Air has one root method, not a choice between two, so the hints that
+    # weigh Native Root against Manager Root would be advertising a button
+    # that is not on screen.
+    _HINT_AIR_OFF = ("Adds su to the Android system image all instances share. "
+                     "Close BlueStacks first; undo from the same button.")
+    _HINT_AIR_ON = ("Rooted: su is at /system/xbin/su in every instance. A "
+                    "BlueStacks update replaces the image and removes it.")
+
     def _hint_text(self, uid, app_root, installed, manager) -> str:
         if uid is None:
             return self._PICK_ONE
+        if getattr(self, "_air_mode", False):
+            return self._HINT_AIR_ON if app_root else self._HINT_AIR_OFF
         if app_root and installed:
             return self._HINT_CONFLICT
         if app_root:
@@ -333,6 +350,13 @@ class InstancesPage(QWidget):
         which would be a lie -- they will never apply here.
         """
         self._air_mode = air
+        # The grid's columns depend on this flag, so rows built before it
+        # arrived have to be rebuilt. Detection normally sets it before the
+        # first load, so this is only for a later rescan that finds a
+        # different install; skip the no-op rebuild when there is nothing
+        # on screen yet.
+        if self._instance_data:
+            self._refresh_rows()
         self._update()
 
     def _update(self, *_args) -> None:
