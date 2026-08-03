@@ -37,6 +37,7 @@ from __future__ import annotations
 import logging
 import os
 import plistlib
+import struct
 from typing import Any
 
 import constants
@@ -56,6 +57,24 @@ SETTING_PATH_KEY = "BlueStacks Air.path"          # -> <bundle>/Contents/MacOS
 ENGINE_DIRNAME = "Engine"
 IMG_DIRNAME = "img"
 ROOT_IMAGE_NAME = "Root.qcow2"
+
+PLAYER_NAME = "BlueStacks"          # Contents/MacOS/BlueStacks
+
+# Mach-O header constants, used to tell the Apple Silicon build apart from an
+# Intel one. Only the byte patterns are needed, so these are matched directly
+# rather than unpacked into ints of ambiguous endianness.
+_MACHO_64_LE = b"\xcf\xfa\xed\xfe"   # MH_MAGIC_64 on a little-endian host
+_MACHO_64_BE = b"\xfe\xed\xfa\xcf"
+_FAT_MAGIC = b"\xca\xfe\xba\xbe"     # universal binary (big-endian header)
+_FAT_MAGIC_LE = b"\xbe\xba\xfe\xca"
+
+ARCH_ARM64 = "arm64"
+ARCH_X86_64 = "x86_64"
+_CPU_TYPES = {0x0100000C: ARCH_ARM64, 0x01000007: ARCH_X86_64,
+              0x0000000C: "arm", 0x00000007: "i386"}
+
+# A universal binary with a silly arch count is corrupt, not something to walk.
+_MAX_FAT_ARCHES = 16
 
 # Bundled tools we reuse rather than requiring the user to install.
 ADB_NAME = "hd-adb"
@@ -88,6 +107,53 @@ def find_app_path() -> str | None:
         if candidate and os.path.isdir(os.path.join(candidate, "Contents", "MacOS")):
             return candidate
     return None
+
+
+def player_architectures(app_path: str) -> set[str]:
+    """CPU architectures the BlueStacks player binary is built for.
+
+    Used to refuse an Intel install rather than silently mistreating it as
+    Air. The two macOS BlueStacks products are unrelated inside: the Apple
+    Silicon one (Air) runs an **arm64** Android guest from a qcow2, while the
+    Intel one is the older VirtualBox-based build with VHDX disks and an x86
+    guest. Nothing here fits that -- and the failure would be quiet rather
+    than loud, since ``macos_root`` would happily write an *aarch64* ``su``
+    into an x86 guest, leaving a modified system image and an ``su`` that
+    dies with an exec-format error.
+
+    Returns an empty set if the binary is missing or unreadable.
+    """
+    path = os.path.join(app_path, "Contents", "MacOS", PLAYER_NAME)
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+            if len(head) < 8:
+                return set()
+            magic, rest = head[:4], head[4:8]
+
+            if magic in (_FAT_MAGIC, _FAT_MAGIC_LE):
+                # Universal binary: a big-endian count, then 20-byte entries
+                # each starting with the cputype.
+                count = struct.unpack(">I", rest)[0]
+                found = set()
+                for _ in range(min(count, _MAX_FAT_ARCHES)):
+                    entry = fh.read(20)
+                    if len(entry) < 20:
+                        break
+                    cpu = struct.unpack(">I", entry[:4])[0]
+                    found.add(_CPU_TYPES.get(cpu, "cpu:0x%x" % cpu))
+                return found
+
+            if magic == _MACHO_64_LE:
+                cpu = struct.unpack("<I", rest)[0]
+            elif magic == _MACHO_64_BE:
+                cpu = struct.unpack(">I", rest)[0]
+            else:
+                return set()
+            return {_CPU_TYPES.get(cpu, "cpu:0x%x" % cpu)}
+    except OSError:
+        logger.debug("could not read %s", path, exc_info=True)
+        return set()
 
 
 def app_version(app_path: str) -> tuple[int, ...] | None:
@@ -140,6 +206,20 @@ def get_all_bluestacks_installations() -> list[Installation]:
     app_path = find_app_path()
     if not app_path:
         logger.debug("No BlueStacks Air installation found.")
+        return []
+
+    # Fail closed on anything that is not the Apple Silicon build, including a
+    # binary we cannot read: reporting nothing costs an Intel user a confusing
+    # "not found", while proceeding would edit their system image with an
+    # aarch64 payload it cannot run.
+    arches = player_architectures(app_path)
+    if ARCH_ARM64 not in arches:
+        logger.warning(
+            "BlueStacks at %s is not the Apple Silicon (Air) build -- player "
+            "architecture %s. Only BlueStacks Air on Apple Silicon is "
+            "supported; the Intel/x86 macOS build is a different, "
+            "VirtualBox-based product this tool cannot root yet.",
+            app_path, ", ".join(sorted(arches)) or "unreadable")
         return []
 
     config_path = os.path.join(DATA_DIR, constants.BLUESTACKS_CONF_FILENAME)

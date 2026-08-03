@@ -7,11 +7,30 @@ module's two hard-coded locations at it.
 from __future__ import annotations
 
 import plistlib
+import struct
 
 import pytest
 
 import constants
 import macos_locator
+
+CPU_ARM64 = 0x0100000C
+CPU_X86_64 = 0x01000007
+
+
+def _write_macho(path, cputype):
+    """A minimal thin 64-bit Mach-O header with the given cputype."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xcf\xfa\xed\xfe" + struct.pack("<I", cputype) + b"\0" * 24)
+
+
+def _write_fat(path, cputypes):
+    """A universal binary header advertising several architectures."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    blob = b"\xca\xfe\xba\xbe" + struct.pack(">I", len(cputypes))
+    for cpu in cputypes:
+        blob += struct.pack(">I", cpu) + b"\0" * 16
+    path.write_bytes(blob)
 
 
 @pytest.fixture
@@ -19,6 +38,9 @@ def air(tmp_path, monkeypatch):
     """A minimal but complete-looking Air installation."""
     app = tmp_path / "BlueStacks.app"
     (app / "Contents" / "MacOS").mkdir(parents=True)
+    # Detection refuses anything that isn't the Apple Silicon build, so the
+    # fixture has to carry a real (if stub) arm64 player binary.
+    _write_macho(app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME, CPU_ARM64)
     (app / "Contents" / "img").mkdir(parents=True)
     (app / "Contents" / "img" / "Root.qcow2").write_bytes(b"qcow")
     with open(app / "Contents" / "Info.plist", "wb") as fh:
@@ -98,3 +120,48 @@ def test_root_image_path_points_into_the_bundle(air):
     app, _ = air
     assert macos_locator.root_image_path(str(app)) == \
         str(app / "Contents" / "img" / "Root.qcow2")
+
+
+# --- Apple Silicon only --------------------------------------------------
+# The Intel macOS BlueStacks is a different product inside (VirtualBox, VHDX
+# disks, x86 guest). Detecting it as Air would not merely fail -- macos_root
+# would write an *aarch64* su into an x86 guest, leaving a modified system
+# image and an su that cannot exec. So detection fails closed.
+
+def test_reports_arm64_player(air):
+    app, _ = air
+    _write_macho(app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME, CPU_ARM64)
+    assert macos_locator.player_architectures(str(app)) == {"arm64"}
+
+
+def test_reports_x86_player(air):
+    app, _ = air
+    _write_macho(app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME, CPU_X86_64)
+    assert macos_locator.player_architectures(str(app)) == {"x86_64"}
+
+
+def test_reads_universal_binary(air):
+    app, _ = air
+    _write_fat(app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME, [CPU_X86_64, CPU_ARM64])
+    assert macos_locator.player_architectures(str(app)) == {"x86_64", "arm64"}
+
+
+def test_intel_install_is_not_reported_as_air(air):
+    app, _ = air
+    _write_macho(app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME, CPU_X86_64)
+    assert macos_locator.get_all_bluestacks_installations() == []
+
+
+def test_universal_build_with_arm64_is_supported(air):
+    """A future universal build still runs the arm64 guest; accept it."""
+    app, _ = air
+    _write_fat(app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME, [CPU_X86_64, CPU_ARM64])
+    assert len(macos_locator.get_all_bluestacks_installations()) == 1
+
+
+def test_unreadable_player_fails_closed(air):
+    """Never edit a system image belonging to a build we could not identify."""
+    app, _ = air
+    (app / "Contents" / "MacOS" / macos_locator.PLAYER_NAME).unlink()
+    assert macos_locator.player_architectures(str(app)) == set()
+    assert macos_locator.get_all_bluestacks_installations() == []

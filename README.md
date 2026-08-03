@@ -10,7 +10,7 @@
 
 **A one-click tool to root BlueStacks 5.** It turns root access on and off from a simple window: no command line, no reverse-engineering, no hunting for an old version. Point it at your BlueStacks, click a couple of buttons, done.
 
-Windows is the primary platform. **BlueStacks Air on Apple Silicon Macs is also supported** — see [Option 3](#option-3-macos--bluestacks-air-apple-silicon) and [Rooting BlueStacks Air](#rooting-bluestacks-air-macos). Air needs a different method entirely, because unlike Windows BlueStacks it ships no `su` for the usual config flag to unlock.
+Windows is the primary platform. **BlueStacks Air on Apple Silicon Macs is also supported** — see [Option 3](#option-3-macos--bluestacks-air-apple-silicon) and [Rooting BlueStacks Air](#rooting-bluestacks-air-macos). Air needs a different method entirely, because unlike Windows BlueStacks it ships no `su` for the usual config flag to unlock. The Intel (x86) macOS build is **not supported yet**.
 
 > [!TIP]
 > **The latest BlueStacks now roots, no downgrade required.** BlueStacks 5.22 added a security check that shut rooted instances down with *"Android system doesn't meet security requirements."* This tool patches that check out, so you can root the current build. Confirmed working on **5.22.232.1002 / Android 13**: the latest official build as of July 2026. If someone told you to downgrade to 5.21, you don't have to anymore.
@@ -101,6 +101,9 @@ Output lands in the `dist/` folder.
 > You normally don't need to build by hand: pushing a version tag (`v*`) triggers the `release.yml` workflow, which builds this exact executable on a Windows runner and publishes it to **[Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases)** automatically.
 
 ### Option 3: macOS — BlueStacks Air (Apple Silicon)
+
+> [!IMPORTANT]
+> **Apple Silicon only.** This supports **BlueStacks Air** on M-series Macs. The older **Intel (x86) macOS build is not supported yet** — it is a different product inside: VirtualBox-based, with VHDX disks and an x86 Android guest, none of which the Air method fits. The tool detects the player's architecture and refuses an Intel install rather than touching it, so there is no risk in trying.
 
 Run from source; there is no packaged build yet.
 
@@ -232,6 +235,13 @@ Everything the tool put on disk lives in two places, both outside the bundle and
 | 5.22.x (pre-5.22.150.1014) | Yes | Classic rooting + engine integrity patch to clear the security popup |
 | 5.22.150.1014+ | Yes | Patch mode: engine patch + `Data.vhdx` guest-`su` patch |
 
+**macOS:**
+
+| BlueStacks | Root Working? | Method |
+|-----------|---------------|--------|
+| **Air** (Apple Silicon, arm64) | Yes | Inject `su` into the shared `Root.qcow2` — Air ships none |
+| **Intel / x86 macOS build** | **Not yet** | Different product: VirtualBox + VHDX + x86 guest. Detected and skipped, never modified. |
+
 **Verified rooted**: every instance reports `uid=0` after toggling root:
 
 | Edition | Registry key | Version | Mode | Android versions verified |
@@ -295,7 +305,7 @@ Both patches are located by byte signature rather than hard-coded offsets, so th
 > [!NOTE]
 > The patch-mode method, the `HD-Player.exe` / `HD-MultiInstanceManager.exe` engine patch **and** the offline `Data.vhdx` guest-`su` patch that root the latest BlueStacks, was contributed by **[@AndnixSH](https://github.com/AndnixSH)** in [PR #27](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/pull/27). See [Credits](#credits).
 
-**BlueStacks Air (macOS, Apple Silicon):** a third method, because neither of the above applies. Air is a different product — a QEMU/`libqvirt` VM running an **arm64** Android 13 guest, with its config at `/Users/Shared/Library/Application Support/BlueStacks/`.
+**BlueStacks Air (macOS, Apple Silicon):** a third method, because neither of the above applies. Air is a different product — a QEMU/`libqvirt` VM running an **arm64** Android 13 guest, with its config at `/Users/Shared/Library/Application Support/BlueStacks/`. (The Intel/x86 macOS build is a *fourth* product — VirtualBox with VHDX disks — and is not supported; detection checks the player's Mach-O architecture and skips it.)
 
 The important difference is that **Air ships no `su` at all.** Windows BlueStacks includes a guest `su` that `enable_root_access` merely *unlocks*, which is why flipping that flag roots it. Air's image has no `su`, no SuperSU and no Magisk anywhere in `/system` or its ramdisk — its init even tries to `import /init.superuser.rc` and logs that the file does not exist. The `enable_root_access` key still exists in Air's `bluestacks.conf`, and the player still resets `bst.feature.rooting` to `0` on every launch, but nothing reads them. **Setting those flags on Air does nothing.**
 
@@ -350,7 +360,7 @@ Undo restores the pristine backup, so nothing about the change is one-way.
 - `constants.py`: Shared constants (keys, filenames, modes, process list, patch-mode version cutoff, `APP_VERSION`)
 - `admin.py`: UAC elevation helpers (relaunch as administrator, network-drive-safe); a no-op on macOS, which elevates per-operation instead
 - `platform_support.py`: Platform flags, and the `osascript` administrator prompt macOS uses for the one privileged step
-- `macos_locator.py`: Finds a BlueStacks Air install (app bundle, shared data dir, instances) and reports it in `registry_handler`'s shape
+- `macos_locator.py`: Finds a BlueStacks Air install (app bundle, shared data dir, instances) and reports it in `registry_handler`'s shape. Reads the player's Mach-O architecture and fails closed on anything that isn't Apple Silicon, so an Intel install is never mistaken for Air
 - `macos_root.py`: Roots BlueStacks Air by injecting `su` into the shared `Root.qcow2` via bundled `qemu-img` + Homebrew `debugfs`, with a backup outside the bundle and an image fingerprint so a BlueStacks update can't leave a stale "rooted" claim
 - `macos_su.py`: Builds the 223-byte statically-linked aarch64 `su` that gets injected; full assembly listing in the module docstring
 - `adb_handler.py`: Pushes/flashes a module `.zip`, and installs/removes the Magisk manager app, over BlueStacks' bundled ADB
