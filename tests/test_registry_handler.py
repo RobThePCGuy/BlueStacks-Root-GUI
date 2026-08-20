@@ -1,21 +1,26 @@
 """Coverage for ``registry_handler.get_all_bluestacks_installations`` -- reads
 three Windows Registry paths (Normal/CN/MSI editions) and had zero tests.
 
-``winreg`` itself is real here (the whole suite already requires Windows, see
-conftest.py), so rather than faking module *existence* we monkeypatch
+``winreg`` itself is real here rather than a fake module, so we monkeypatch
 ``winreg.OpenKey``/``winreg.QueryValueEx`` to serve fixture data instead of the
 real registry, and keep the real ``HKEY_LOCAL_MACHINE``/``KEY_READ``/``REG_SZ``
 constants the code compares/passes through. Each test pins down one specific,
 previously-unverified branch: a whole source missing vs. permission-denied vs.
 one individual value missing, the "need both UserDefinedDir and DataDir"
 gating rule, the REG_SZ type guard, and that sources aren't cross-contaminated.
+
+The rest of the suite runs on macOS too (BlueStacks Air is supported there --
+see ``macos_root``), but there is no registry to emulate, so this module skips
+itself off Windows instead of importing a module that does not exist.
 """
 from __future__ import annotations
 
-import winreg
+import pytest
 
-import constants
-import registry_handler
+winreg = pytest.importorskip("winreg", reason="registry probe is Windows-only")
+
+import constants  # noqa: E402  (must follow the skip guard)
+import registry_handler  # noqa: E402
 
 # conftest.py's repo-root autouse fixture stubs
 # registry_handler.get_all_bluestacks_installations to `lambda: []` for every

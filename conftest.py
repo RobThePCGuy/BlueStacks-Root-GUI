@@ -20,6 +20,10 @@ def _no_real_bluestacks_detection(monkeypatch):
     on the host. Stubbing detection to "nothing installed" makes the stray init
     harmless everywhere; tests that need installations set them on the window
     directly after construction.
+
+    This is the single detection entry point on every platform -- on macOS it
+    delegates to ``macos_locator`` -- so patching it here also keeps the suite
+    off a real BlueStacks Air install.
     """
     monkeypatch.setattr(
         "registry_handler.get_all_bluestacks_installations",

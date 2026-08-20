@@ -268,3 +268,73 @@ def test_root_buttons_are_short_enough_not_to_truncate(qtbot):
                  "rezygisk_button", "lsposed_button"):
         label = getattr(page, name).text()
         assert len(label) <= 20, (name, label)
+
+
+# --- BlueStacks Air ------------------------------------------------------
+# Air has no R/W state and no Magisk path, so those columns and buttons are
+# dropped rather than shown empty -- "Off" and "-" read as "a thing you have
+# switched off", which would be a lie about what the app can do here.
+
+def _air_page(qtbot, rooted=False):
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_air_mode(True)
+    page.set_instances({"Tiramisu64 (AIR)": {
+        "root_enabled": rooted,
+        "rw_mode": constants.MODE_NOT_APPLICABLE,
+        "air_mode": True,
+        "display_name": "BlueStacks Air",
+        "original_name": "Tiramisu64",
+    }}, preserve_selection=False)
+    return page
+
+
+def _headers(page):
+    return [page.instance_layout.itemAt(i).widget().text()
+            for i in range(page.instance_layout.count())
+            if isinstance(page.instance_layout.itemAt(i).widget(), QLabel)
+            and page.instance_layout.itemAt(i).widget().objectName() == "InstanceHeader"]
+
+
+def test_air_grid_drops_rw_and_manager_columns(qtbot):
+    assert _headers(_air_page(qtbot)) == ["Instance", "Root"]
+
+
+def test_windows_grid_keeps_all_columns(qtbot):
+    page = InstancesPage()
+    qtbot.addWidget(page)
+    page.show()
+    page.set_instances({"Nougat64 (NXT)": {
+        "root_enabled": False, "rw_mode": constants.MODE_READONLY,
+        "display_name": "x", "original_name": "Nougat64",
+    }}, preserve_selection=False)
+    assert _headers(page) == ["Instance", "Root", "R/W", "Manager app"]
+
+
+def test_air_hides_rw_and_magisk_buttons(qtbot):
+    page = _air_page(qtbot)
+    page.checkboxes["Tiramisu64 (AIR)"].setChecked(True)
+    assert page.rw_toggle_button.isVisible() is False
+    assert page.install_button.isVisible() is False
+    assert page.uninstall_button.isVisible() is False
+    # ...but the things Air *can* do stay available.
+    assert page.root_toggle_button.isEnabled() is True
+    assert page.launch_button.isEnabled() is True
+
+
+def test_air_root_button_says_it_covers_every_instance(qtbot):
+    page = _air_page(qtbot)
+    page.checkboxes["Tiramisu64 (AIR)"].setChecked(True)
+    assert "all instances" in page.root_toggle_button.text()
+    page_on = _air_page(qtbot, rooted=True)
+    page_on.checkboxes["Tiramisu64 (AIR)"].setChecked(True)
+    assert page_on.root_toggle_button.text().startswith("Remove")
+
+
+def test_air_hint_does_not_advertise_manager_root(qtbot):
+    """Manager Root has no button on Air; naming it would send users hunting."""
+    page = _air_page(qtbot)
+    page.checkboxes["Tiramisu64 (AIR)"].setChecked(True)
+    assert "Manager Root" not in page.hint_label.text()
+    assert "su" in page.hint_label.text()

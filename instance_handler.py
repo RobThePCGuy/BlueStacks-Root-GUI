@@ -10,20 +10,41 @@ import psutil
 
 
 import constants
+import platform_support
 
 logger = logging.getLogger(__name__)
 
 
 def launch_instance(install_dir: str, instance_name: str) -> None:
-    """Start a specific BlueStacks instance (``HD-Player.exe --instance <name>``).
+    """Start a specific BlueStacks instance.
 
-    Raises with an actionable message if the player exe isn't found.
+    Raises with an actionable message if the player isn't found.
     """
+    if platform_support.IS_MACOS:
+        _launch_instance_macos(install_dir, instance_name)
+        return
     exe = os.path.join(install_dir, "HD-Player.exe")
     if not os.path.isfile(exe):
         raise RuntimeError("HD-Player.exe not found in %s" % install_dir)
     logger.info("Launching instance %s via %s", instance_name, exe)
     subprocess.Popen([exe, "--instance", instance_name], close_fds=True)
+
+
+def _launch_instance_macos(install_dir: str, instance_name: str) -> None:
+    """Start an Air instance via the ``BlueStacks`` binary in the bundle.
+
+    ``install_dir`` is ``BlueStacks.app/Contents/MacOS``. The binary is invoked
+    directly rather than through ``open -a`` so the ``--instance`` argument
+    actually reaches it: ``open`` would hand the app a launch *event* instead,
+    and a second instance name would be dropped in favour of re-activating the
+    already-running copy.
+    """
+    exe = os.path.join(install_dir, "BlueStacks")
+    if not os.path.isfile(exe):
+        raise RuntimeError("BlueStacks not found in %s" % install_dir)
+    logger.info("Launching instance %s via %s", instance_name, exe)
+    subprocess.Popen([exe, "--instance", instance_name],
+                     close_fds=True, start_new_session=True)
 
 
 def restart_instance(install_dir: str, instance_name: str,
@@ -264,6 +285,18 @@ def is_instance_readonly(instance_path: str) -> bool | None:
         )
         return None
 
+def bluestacks_process_names() -> list[str]:
+    """Process names to terminate, for whichever BlueStacks this platform runs.
+
+    The two sets share no names at all: Air's player is plain ``BlueStacks``
+    with no extension, and it has no service/agent processes because it runs
+    its VM in-process (``libqvirt.dylib``) rather than behind ``BstkSVC``.
+    """
+    if platform_support.IS_MACOS:
+        return constants.MACOS_PROCESS_NAMES
+    return constants.BLUESTACKS_PROCESS_NAMES
+
+
 def terminate_bluestacks() -> bool:
     """
     Attempts to terminate all known BlueStacks-related processes gracefully,
@@ -276,11 +309,12 @@ def terminate_bluestacks() -> bool:
     terminated_any = False
     logger.info("Attempting to terminate BlueStacks processes...")
     processes_found: list[psutil.Process] = []
+    target_names = bluestacks_process_names()
 
     for proc in psutil.process_iter(["pid", "name"]):
         try:
             proc_name = proc.info.get("name")
-            if proc_name in constants.BLUESTACKS_PROCESS_NAMES:
+            if proc_name in target_names:
                 processes_found.append(proc)
                 logger.debug(f"Found BlueStacks process: {proc_name} (PID: {proc.pid})")
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):

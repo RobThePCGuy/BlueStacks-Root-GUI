@@ -1,3 +1,6 @@
 PyQt5 >= 5.15.11
-pywin32 >= 312  
-psutil >= 7.2.2  
+# Windows-only: the single-instance mutex in main.py and nothing else. Marked
+# so `pip install -r requirements.txt` works on macOS, where BlueStacks Air is
+# supported (see macos_root) and pywin32 has no wheel.
+pywin32 >= 312 ; sys_platform == "win32"
+psutil >= 7.2.2

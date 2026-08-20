@@ -182,6 +182,8 @@ class InstancesPage(QWidget):
         self._instance_data: dict[str, dict] = {}
         self._magisk: dict[str, dict | None] = {}
         self._busy = False
+        # Set from the detected installation; see set_air_mode().
+        self._air_mode = False
         self._update()
 
     # --- state in --------------------------------------------------------
@@ -227,7 +229,13 @@ class InstancesPage(QWidget):
         self.checkboxes = {}
 
         # Column headers, so "Root:" and "R/W:" aren't repeated on every row.
-        for col, title in ((0, "Instance"), (1, "Root"), (2, "R/W"), (3, "Manager app")):
+        # R/W and Manager app are Windows-only concepts; on Air the columns are
+        # dropped entirely rather than filled with "Off"/"-", which would read
+        # as "a thing you have switched off" instead of "not a thing here".
+        air = getattr(self, "_air_mode", False)
+        columns = ((0, "Instance"), (1, "Root")) if air else (
+            (0, "Instance"), (1, "Root"), (2, "R/W"), (3, "Manager app"))
+        for col, title in columns:
             header = QLabel(title)
             header.setObjectName("InstanceHeader")
             self.instance_layout.addWidget(header, 0, col)
@@ -264,8 +272,9 @@ class InstancesPage(QWidget):
 
             self.instance_layout.addWidget(checkbox, row, 0)
             self.instance_layout.addWidget(root_label, row, 1)
-            self.instance_layout.addWidget(rw_label, row, 2)
-            self.instance_layout.addWidget(magisk_label, row, 3)
+            if not air:
+                self.instance_layout.addWidget(rw_label, row, 2)
+                self.instance_layout.addWidget(magisk_label, row, 3)
             self.checkboxes[unique_id] = checkbox
 
     @staticmethod
@@ -310,9 +319,19 @@ class InstancesPage(QWidget):
 
     # --- derived UI ------------------------------------------------------
 
+    # Air has one root method, not a choice between two, so the hints that
+    # weigh Native Root against Manager Root would be advertising a button
+    # that is not on screen.
+    _HINT_AIR_OFF = ("Adds su to the Android system image all instances share. "
+                     "Close BlueStacks first; undo from the same button.")
+    _HINT_AIR_ON = ("Rooted: su is at /system/xbin/su in every instance. A "
+                    "BlueStacks update replaces the image and removes it.")
+
     def _hint_text(self, uid, app_root, installed, manager) -> str:
         if uid is None:
             return self._PICK_ONE
+        if getattr(self, "_air_mode", False):
+            return self._HINT_AIR_ON if app_root else self._HINT_AIR_OFF
         if app_root and installed:
             return self._HINT_CONFLICT
         if app_root:
@@ -320,6 +339,25 @@ class InstancesPage(QWidget):
         if not installed:
             return self._HINT_CHOOSE
         return self._HINT_MODULES
+
+    def set_air_mode(self, air: bool) -> None:
+        """Reduce the page to the actions BlueStacks Air actually supports.
+
+        Air has no R/W state to toggle (no .bstk files, one shared read-only
+        system image) and no Magisk path (its offline installer drives Windows
+        VHDs through bundled e2fsprogs ``.exe``s). Those buttons are hidden
+        rather than disabled: a greyed-out button reads as "not right now",
+        which would be a lie -- they will never apply here.
+        """
+        self._air_mode = air
+        # The grid's columns depend on this flag, so rows built before it
+        # arrived have to be rebuilt. Detection normally sets it before the
+        # first load, so this is only for a later rescan that finds a
+        # different install; skip the no-op rebuild when there is nothing
+        # on screen yet.
+        if self._instance_data:
+            self._refresh_rows()
+        self._update()
 
     def _update(self, *_args) -> None:
         busy = self._busy
@@ -330,6 +368,7 @@ class InstancesPage(QWidget):
         app_root = bool(data and data.get("root_enabled"))
         installed = bool(st)
         manager = installed and "manager" in (st.get("components") or [])
+        air = getattr(self, "_air_mode", False)
 
         self.hint_label.setText(self._hint_text(uid, app_root, installed, manager))
 
@@ -341,12 +380,28 @@ class InstancesPage(QWidget):
 
         # The Native Root button is a toggle, so its label says what the click
         # will do rather than leaving the user to infer it from the grid.
-        self.root_toggle_button.setText(
-            "Disable Native Root" if app_root else "Native Root")
+        if air:
+            # "Native Root" would understate it: on Air this installs su into
+            # the shared system image, so it roots every instance at once.
+            self.root_toggle_button.setText(
+                "Remove Root (all instances)" if app_root else "Root (all instances)")
+            self.root_toggle_button.setToolTip(
+                "Installs su into the Android system image BlueStacks Air "
+                "shares between all instances. Air ships no su of its own, so "
+                "this is what root means here.\n\n"
+                "While it is applied, BlueStacks.app's code signature no longer "
+                "validates (the image is a sealed resource) -- the app still "
+                "runs. Undoing from this same button restores the original "
+                "image byte for byte and repairs that.")
+        else:
+            self.root_toggle_button.setText(
+                "Disable Native Root" if app_root else "Native Root")
+
+        self.rw_toggle_button.setVisible(not air)
 
         # Show only the actions that apply, in flow order. A present but disabled
         # button reads as "you could do this" when you can't.
-        one = uid is not None
+        one = uid is not None and not air
         show_install = one and not installed
         self.install_button.setVisible(show_install)
         self.uninstall_button.setVisible(one and installed)

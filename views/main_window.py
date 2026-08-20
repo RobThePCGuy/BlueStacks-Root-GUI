@@ -25,6 +25,12 @@ import ext4_symlink
 import adb_handler
 import magisk_system
 import admin
+# Pure-Python and dependency-free, so these import fine on Windows too; only
+# the Air code paths below ever call into them. The UI branches on the
+# installation's `air_mode` flag rather than on the host platform, so a
+# platform check here would be the wrong question to ask.
+import macos_locator
+import macos_root
 
 from views.nav_rail import (
     NavRail, DASHBOARD as NAV_DASHBOARD, INSTANCES as NAV_INSTANCES,
@@ -235,6 +241,14 @@ class MainWindow(QWidget):
             path_details.append(f"  - {inst['source']} v{ver}: {inst['user_path']}")
         self.dashboard_page.set_paths_text("\n".join(path_details))
 
+        # BlueStacks Air supports a different (smaller) set of actions than
+        # Windows BlueStacks; tell the pages before the first render so no
+        # inapplicable button is ever shown, even briefly.
+        self._air_mode = any(i.get("air_mode") for i in self.installations)
+        self.instances_page.set_air_mode(self._air_mode)
+        if self._air_mode:
+            self.nav_rail.set_destination_visible(NAV_MODULES, False)
+
         # Populate instance_data BEFORE refreshing the patch UI: the Dashboard
         # "N / M instances rooted" stat is derived from instance_data, so
         # refreshing first would render "0 / 0" until the next timer tick.
@@ -328,12 +342,23 @@ class MainWindow(QWidget):
             source_id, config_path, data_path = inst["source"], inst["config_path"], inst["data_path"]
             install_path = inst.get("install_path")
             patch_mode = inst.get("patch_mode", False)
+            air_mode = inst.get("air_mode", False)
             root_info = config_handler.get_complete_root_statuses(config_path)
             instance_root_statuses = root_info['instance_statuses']
             display_names = root_info.get('display_names', {})
 
+            # Air roots the one system image every instance shares, so root is
+            # a property of the installation, not of an instance. Read it once
+            # per refresh rather than once per instance.
+            air_rooted = (macos_root.image_root_state(inst["app_path"], inst["user_path"])
+                          if air_mode else False)
+
             disk_instances = set()
-            if os.path.isdir(data_path):
+            if air_mode:
+                # Engine/ also holds UserData, which is not an instance; the
+                # locator knows which entries to skip.
+                disk_instances = set(macos_locator.list_instance_dirs(inst["user_path"]))
+            elif os.path.isdir(data_path):
                 try:
                     disk_instances = {
                         entry for entry in os.listdir(data_path)
@@ -350,7 +375,12 @@ class MainWindow(QWidget):
                 instance_dir_path = os.path.join(data_path, name)
 
                 rw_mode = constants.MODE_UNKNOWN
-                if os.path.isdir(instance_dir_path):
+                if air_mode:
+                    # No .bstk files and one shared read-only image: there is
+                    # no R/W state to report, and MODE_UNKNOWN would hide the
+                    # instance entirely (see the filter below).
+                    rw_mode = constants.MODE_NOT_APPLICABLE
+                elif os.path.isdir(instance_dir_path):
                     is_readonly = instance_handler.is_instance_readonly(instance_dir_path)
                     if is_readonly is True:
                         rw_mode = constants.MODE_READONLY
@@ -358,14 +388,21 @@ class MainWindow(QWidget):
                         rw_mode = constants.MODE_READWRITE
 
                 individual_root_on = instance_root_statuses.get(name, False)
-                if patch_mode:
+                if air_mode:
+                    # Air's enable_root_access key is inert -- the image ships
+                    # no su for it to unlock -- so the only truthful answer is
+                    # whether su is in the image.
+                    effective_root_status = air_rooted
+                elif patch_mode:
                     effective_root_status = su_patch_offline.instance_root_state(instance_dir_path)
                 else:
                     effective_root_status = individual_root_on
                 # A Magisk system-mode install roots via /system -- it never sets
                 # the bluestacks.conf root flag or the su-patch marker, so without
                 # this the dashboard reads "0 rooted" for a Magisk-rooted instance.
-                if not effective_root_status and \
+                # Magisk is Windows-only (its offline installer drives VHDs with
+                # bundled e2fsprogs .exe binaries), so skip the probe on Air.
+                if not air_mode and not effective_root_status and \
                         magisk_system.magisk_status(instance_dir_path) is not None:
                     effective_root_status = True
 
@@ -379,6 +416,9 @@ class MainWindow(QWidget):
                     "individual_root_status": individual_root_on,
                     "display_name": display_names.get(name, name),
                     "patch_mode": patch_mode,
+                    "air_mode": air_mode,
+                    "app_path": inst.get("app_path"),
+                    "user_path": inst.get("user_path"),
                 }
 
         self.instance_data = {
@@ -392,10 +432,31 @@ class MainWindow(QWidget):
         self.instances_page.set_instances(self.instance_data, preserve_selection)
 
     def _toggle_single_instance_root(self, unique_id, progress=None):
-        if self.instance_data[unique_id].get("patch_mode"):
+        instance = self.instance_data[unique_id]
+        if instance.get("air_mode"):
+            self._toggle_root_air(unique_id, progress)
+        elif instance.get("patch_mode"):
             self._toggle_root_patchmode(unique_id, progress)
         else:
             self._toggle_root_conf(unique_id, progress)
+
+    def _toggle_root_air(self, unique_id, progress=None):
+        """Root BlueStacks Air by adding/removing su in its system image.
+
+        Unlike every other path here this is install-wide: Air has no
+        per-instance system image, so the toggle affects every instance. The
+        selected instance only decides which *direction* to go.
+        """
+        instance = self.instance_data[unique_id]
+        turn_on = not instance["root_enabled"]
+        app_path = instance.get("app_path")
+        if not app_path:
+            raise RuntimeError("No BlueStacks Air app bundle recorded for %s." % unique_id)
+        results = macos_root.set_root(
+            app_path, turn_on, progress,
+            data_dir=instance.get("user_path") or macos_locator.DATA_DIR)
+        logger.info("Root %s (Air) for %s: %s", "ON" if turn_on else "OFF",
+                    unique_id, " | ".join(results))
 
     def _toggle_root_patchmode(self, unique_id, progress=None):
         instance = self.instance_data[unique_id]
@@ -491,6 +552,22 @@ class MainWindow(QWidget):
                     "Patch it from the Dashboard, then try again."
                     % (", ".join(blocked), "" if len(blocked) > 1 else "s"))
                 return
+
+            # Air roots the one system image every instance shares. Running the
+            # toggle once per ticked instance would flip it back and forth and
+            # land on "rooted" or "not rooted" depending on how many were
+            # ticked, so collapse to a single pass.
+            air_ids = [uid for uid in selected_ids
+                       if self.instance_data[uid].get("air_mode")]
+            if air_ids:
+                if len(selected_ids) > 1:
+                    QMessageBox.information(
+                        self, "Root applies to every instance",
+                        "BlueStacks Air shares one Android system image between "
+                        "all its instances, so root is installed once and every "
+                        "instance gets it.\n\nThis will run once, not %d times."
+                        % len(selected_ids))
+                selected_ids = air_ids[:1]
 
         total = len(selected_ids)
 
