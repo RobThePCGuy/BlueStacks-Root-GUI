@@ -18,6 +18,12 @@ updates:
       include: "scope"
     groups:
       all-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      security-minor-patch:
+        applies-to: security-updates
         update-types:
           - "minor"
           - "patch"
@@ -37,3 +43,8 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
