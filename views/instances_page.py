@@ -42,6 +42,7 @@ class InstancesPage(QWidget):
     # The window carries only a prompt and the one warning that needs acting
     # on; the explanations are in the buttons' tooltips and the "?" help.
     _PICK_ONE = "Tick an instance to start."
+    _PICK_SINGLE = "Tick just one instance to launch or restart it."
     _HINT_CONFLICT = ("Both roots are on and will fight over su. Switch off "
                       "Native Root.")
 
@@ -342,6 +343,8 @@ class InstancesPage(QWidget):
     def _hint_text(self, uid, app_root, installed, manager) -> str:
         if not self.selected_ids():
             return self._PICK_ONE
+        if uid is None:
+            return self._PICK_SINGLE
         if app_root and installed and not getattr(self, "_air_mode", False):
             return self._HINT_CONFLICT
         return ""
