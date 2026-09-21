@@ -16,13 +16,16 @@ class DashboardPage(QWidget):
 
         self.path_label = QLabel("BlueStacks Path: Loading...")
         self.path_label.setWordWrap(True)
+        self.path_label.setToolTip(
+            "Each BlueStacks install found on this computer: its type, version "
+            "and data folder.")
         layout.addWidget(self.path_label)
 
-        self.alert_label = QLabel(
-            "An auto-update reverted your engine patch. Rooted instances will "
-            "fail the integrity check on next boot until you re-patch."
-        )
+        self.alert_label = QLabel("A BlueStacks update undid your engine patch.")
         self.alert_label.setWordWrap(True)
+        self.alert_label.setToolTip(
+            "Rooted instances will fail BlueStacks' tamper check on their next "
+            "boot until you re-patch.")
         self.alert_label.setObjectName("UpdateRevertedAlert")
         self.repatch_button = QPushButton("Re-patch now")
         self.repatch_button.setToolTip(
@@ -39,6 +42,7 @@ class DashboardPage(QWidget):
         layout.addWidget(self.engine_button)
 
         self.stat_label = QLabel("0 / 0 instances rooted")
+        self.stat_label.setToolTip("Root status per instance is on the Instances page.")
         layout.addWidget(self.stat_label)
         layout.addStretch(1)
 

@@ -25,6 +25,10 @@ DARK = "dark"
 # the frame is drawn at the widget's top edge and the title is clipped by it
 # unless margin-top leaves room and the title is positioned into that margin.
 #
+# Scrollbars get the same treatment for a related reason: the blanket QWidget
+# background breaks QMacStyle's scrollbar, which is then drawn *over* the
+# content of a scroll area (the help window's text ran under it and was cut).
+#
 # Scoped to macOS deliberately. Windows already renders these correctly, it is
 # this project's primary platform, and it cannot be verified from here -- so it
 # keeps the native rendering untouched rather than trading a visible bug on one
@@ -48,6 +52,13 @@ QCheckBox::indicator:unchecked {
     border: 1px solid %(box_border)s;
     border-radius: 4px;
 }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
+QScrollBar::handle { background: %(box_border)s; border-radius: 3px; }
+QScrollBar::handle:vertical { min-height: 24px; }
+QScrollBar::handle:horizontal { min-width: 24px; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 """
 
 # The indicator rule is deliberately :unchecked only. An *empty* macOS checkbox
