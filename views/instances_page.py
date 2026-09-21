@@ -39,10 +39,9 @@ class InstancesPage(QWidget):
     install_rezygisk_requested = pyqtSignal()
     install_lsposed_requested = pyqtSignal()
 
-    _PICK_ONE = "Tick one instance to see what you can do with it."
-    _HINT_NATIVE = "Native Root is on. Choose Manager Root instead if you want modules."
-    _HINT_CHOOSE = "Native Root for a quick su, or Manager Root to add modules."
-    _HINT_MODULES = "Add ReZygisk, then LSPosed, then Restart once to activate them."
+    # The window carries only a prompt and the one warning that needs acting
+    # on; the explanations are in the buttons' tooltips and the "?" help.
+    _PICK_ONE = "Tick an instance to start."
     _HINT_CONFLICT = ("Both roots are on and will fight over su. Switch off "
                       "Native Root.")
 
@@ -50,11 +49,12 @@ class InstancesPage(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
 
-        self.banner_label = QLabel(
-            "Patch-mode root is locked. Patch the engine to root the "
-            "5.22.150+ instances. (The MSI classic instance roots without it.)"
-        )
+        self.banner_label = QLabel("Root is locked until the engine is patched.")
         self.banner_label.setWordWrap(True)
+        self.banner_label.setToolTip(
+            "BlueStacks 5.22.150 and newer refuse to boot a rooted instance "
+            "until the engine patch is applied on the Dashboard. The MSI classic "
+            "instance roots without it.")
         self.banner_fix_button = QPushButton("Fix it")
         self.banner_fix_button.setToolTip(
             "Opens the Dashboard, where the engine patch is applied.")
@@ -68,6 +68,9 @@ class InstancesPage(QWidget):
         # Instances group box: a scroll area wraps the grid so large instance
         # counts (20+) don't force the window taller than the screen.
         self.instance_group = QGroupBox("Instances")
+        self.instance_group.setToolTip(
+            "Tick instances to act on them. Root works on every ticked instance; "
+            "the other buttons need exactly one.")
         instance_group_layout = QVBoxLayout(self.instance_group)
 
         self.instance_scroll_area = QScrollArea()
@@ -122,9 +125,10 @@ class InstancesPage(QWidget):
         # tooltips rather than on the buttons.
         choice_row = QHBoxLayout()
         self.root_toggle_button = QPushButton("Native Root")
-        self.root_toggle_button.setToolTip(
+        self._native_tip = (
             "BlueStacks' own su. Quick and reversible, works for root apps and "
             "root checkers, but gives you no modules.")
+        self.root_toggle_button.setToolTip(self._native_tip)
         self.root_toggle_button.clicked.connect(self.toggle_root_requested.emit)
         self.install_button = QPushButton("Manager Root")
         self.install_button.setToolTip(
@@ -238,6 +242,8 @@ class InstancesPage(QWidget):
         for col, title in columns:
             header = QLabel(title)
             header.setObjectName("InstanceHeader")
+            header.setToolTip(self._AIR_ROOT_TIP if (air and title == "Root")
+                              else self._COLUMN_TIPS.get(title, ""))
             self.instance_layout.addWidget(header, 0, col)
 
         for index, unique_id in enumerate(sorted(self._instance_data.keys())):
@@ -255,12 +261,16 @@ class InstancesPage(QWidget):
             checkbox.setToolTip(unique_id)
             checkbox.toggled.connect(self._update)
 
-            root_label = QLabel(self._root_text(app_root, magisk))
+            root_label = QLabel(("On" if app_root else "Off") if air
+                                else self._root_text(app_root, magisk))
             # Styled by object name in the theme's QSS instead of a hard-coded
             # colour, so it follows the light/dark palette like everything else.
             root_label.setObjectName("RootOn" if (app_root or magisk) else "RootOff")
             if app_root and magisk:
                 root_label.setToolTip(self._HINT_CONFLICT)
+            else:
+                root_label.setToolTip(self._AIR_ROOT_TIP if air
+                                      else self._COLUMN_TIPS["Root"])
             rw_label = QLabel("On" if rw_on else "Off")
             rw_label.setObjectName("RwState")
             magisk_label = QLabel(self._magisk_text(magisk))
@@ -276,6 +286,16 @@ class InstancesPage(QWidget):
                 self.instance_layout.addWidget(rw_label, row, 2)
                 self.instance_layout.addWidget(magisk_label, row, 3)
             self.checkboxes[unique_id] = checkbox
+
+    _COLUMN_TIPS = {
+        "Instance": "The instance's engine name. Hover a name for its full id.",
+        "Root": ("Off, Native (BlueStacks' own su), Manager (Magisk), or "
+                 "Native + Manager, which conflict."),
+        "R/W": "On means the system disk is writable.",
+        "Manager app": "Whether the Magisk app is installed in the instance.",
+    }
+
+    _AIR_ROOT_TIP = "On means su is installed. On Air it covers every instance."
 
     @staticmethod
     def _row_label(unique_id: str, data: dict) -> str:
@@ -319,26 +339,12 @@ class InstancesPage(QWidget):
 
     # --- derived UI ------------------------------------------------------
 
-    # Air has one root method, not a choice between two, so the hints that
-    # weigh Native Root against Manager Root would be advertising a button
-    # that is not on screen.
-    _HINT_AIR_OFF = ("Adds su to the Android system image all instances share. "
-                     "Close BlueStacks first; undo from the same button.")
-    _HINT_AIR_ON = ("Rooted: su is at /system/xbin/su in every instance. A "
-                    "BlueStacks update replaces the image and removes it.")
-
     def _hint_text(self, uid, app_root, installed, manager) -> str:
-        if uid is None:
+        if not self.selected_ids():
             return self._PICK_ONE
-        if getattr(self, "_air_mode", False):
-            return self._HINT_AIR_ON if app_root else self._HINT_AIR_OFF
-        if app_root and installed:
+        if app_root and installed and not getattr(self, "_air_mode", False):
             return self._HINT_CONFLICT
-        if app_root:
-            return self._HINT_NATIVE
-        if not installed:
-            return self._HINT_CHOOSE
-        return self._HINT_MODULES
+        return ""
 
     def set_air_mode(self, air: bool) -> None:
         """Reduce the page to the actions BlueStacks Air actually supports.
@@ -370,7 +376,9 @@ class InstancesPage(QWidget):
         manager = installed and "manager" in (st.get("components") or [])
         air = getattr(self, "_air_mode", False)
 
-        self.hint_label.setText(self._hint_text(uid, app_root, installed, manager))
+        hint = self._hint_text(uid, app_root, installed, manager)
+        self.hint_label.setText(hint)
+        self.hint_label.setVisible(bool(hint))
 
         # Bulk actions work on every tick; single-instance actions need one.
         self.root_toggle_button.setEnabled(any_ticked and not busy)
@@ -381,6 +389,9 @@ class InstancesPage(QWidget):
         # The Native Root button is a toggle, so its label says what the click
         # will do rather than leaving the user to infer it from the grid.
         if air:
+            # Air root is install-wide, so the label follows the install, not
+            # the tick: otherwise an unticked, rooted install reads "Root".
+            app_root = any(d.get("root_enabled") for d in self._instance_data.values())
             # "Native Root" would understate it: on Air this installs su into
             # the shared system image, so it roots every instance at once.
             self.root_toggle_button.setText(
@@ -389,13 +400,13 @@ class InstancesPage(QWidget):
                 "Installs su into the Android system image BlueStacks Air "
                 "shares between all instances. Air ships no su of its own, so "
                 "this is what root means here.\n\n"
-                "While it is applied, BlueStacks.app's code signature no longer "
-                "validates (the image is a sealed resource) -- the app still "
-                "runs. Undoing from this same button restores the original "
-                "image byte for byte and repairs that.")
+                "Close BlueStacks first. Undo from this same button: it puts "
+                "the original image back exactly. A BlueStacks update also "
+                "removes root; click again after one.")
         else:
             self.root_toggle_button.setText(
                 "Disable Native Root" if app_root else "Native Root")
+            self.root_toggle_button.setToolTip(self._native_tip)
 
         self.rw_toggle_button.setVisible(not air)
 

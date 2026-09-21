@@ -11,8 +11,7 @@ class ModulesPage(QWidget):
     browse_zip_requested = pyqtSignal()
     push_requested = pyqtSignal()
 
-    _EMPTY_TEXT = ("No instance is running. Start one from the Instances tab, then "
-                   "it will appear here.")
+    _EMPTY_TEXT = "No instance is running."
     _SCANNING_TEXT = "Checking which instances are running..."
 
     def __init__(self, parent=None):
@@ -26,12 +25,15 @@ class ModulesPage(QWidget):
         layout.addLayout(self._running_layout)
         self.no_running_label = QLabel(self._EMPTY_TEXT)
         self.no_running_label.setWordWrap(True)
+        self.no_running_label.setToolTip(
+            "Start an instance from the Instances page and it appears here.")
         self.no_running_label.hide()
         layout.addWidget(self.no_running_label)
 
         layout.addWidget(QLabel("2. Choose module archive"))
         self.zip_label = QLabel("No file chosen")
         self.zip_label.setWordWrap(True)
+        self.zip_label.setToolTip("The module .zip that will be flashed.")
         self.browse_button = QPushButton("Browse...")
         self.browse_button.setToolTip(
             "Pick a Magisk module .zip from your PC.")
@@ -82,6 +84,7 @@ class ModulesPage(QWidget):
 
         for uid in unique_ids:
             radio = QRadioButton(uid)
+            radio.setToolTip("Flash the module into this running instance.")
             radio.toggled.connect(self._update_push_enabled)
             self.running_group.addButton(radio)
             self._running_layout.addWidget(radio)

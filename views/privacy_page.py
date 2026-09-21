@@ -62,12 +62,10 @@ class PrivacyPage(QWidget):
         ads_row.addWidget(self.ads_restore_button)
         ads_layout.addLayout(ads_row)
 
-        self.ads_lock_check = QCheckBox(
-            "Lock the config file so BlueStacks can't turn them back on")
+        self.ads_lock_check = QCheckBox("Lock config file")
         self.ads_lock_check.setToolTip(
-            "Sets bluestacks.conf read-only so the switches can't be reverted. "
-            "It also blocks BlueStacks' own settings, so unlock before changing "
-            "them.")
+            "Makes bluestacks.conf read-only so BlueStacks can't turn them back "
+            "on. Unlock before changing BlueStacks' own settings.")
         self.ads_lock_check.toggled.connect(self._on_lock_toggled)
         ads_layout.addWidget(self.ads_lock_check)
 
@@ -90,6 +88,9 @@ class PrivacyPage(QWidget):
         self.status_label = QLabel(self._PROMPT_TEXT)
         self.status_label.setWordWrap(True)
         self.status_label.setObjectName("PrivacyStatus")
+        guest_box.setToolTip(
+            "Blocks tracker domains for apps inside Android. BlueStacks' own "
+            "ads are the section above.")
         guest_layout.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
@@ -197,6 +198,7 @@ class PrivacyPage(QWidget):
         self._statuses = dict(statuses)
         for uid in sorted(statuses):
             radio = QRadioButton(uid)
+            radio.setToolTip("Block or unblock trackers for this instance.")
             radio.toggled.connect(self._update)
             self.instance_group.addButton(radio)
             self._instance_layout.addWidget(radio)

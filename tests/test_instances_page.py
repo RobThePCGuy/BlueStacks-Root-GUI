@@ -197,7 +197,7 @@ def test_actions_are_disabled_until_something_is_ticked(qtbot):
                                            "rw_mode": constants.MODE_READONLY}})
     assert page.root_toggle_button.isEnabled() is False
     assert page.launch_button.isEnabled() is False
-    assert "tick one instance" in page.hint_label.text().lower()
+    assert "tick an instance" in page.hint_label.text().lower()
 
     page.checkboxes["Pie64 (Normal)"].setChecked(True)
     assert page.root_toggle_button.isEnabled() is True
@@ -337,4 +337,4 @@ def test_air_hint_does_not_advertise_manager_root(qtbot):
     page = _air_page(qtbot)
     page.checkboxes["Tiramisu64 (AIR)"].setChecked(True)
     assert "Manager Root" not in page.hint_label.text()
-    assert "su" in page.hint_label.text()
+    assert "Manager Root" not in page.root_toggle_button.toolTip()

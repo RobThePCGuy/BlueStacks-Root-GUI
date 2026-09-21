@@ -9,10 +9,10 @@ from typing import Any
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QPushButton,
-    QMessageBox, QFileDialog, QApplication,
+    QMessageBox, QFileDialog, QApplication, QShortcut,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QKeySequence
 
 import constants
 import registry_handler
@@ -37,6 +37,7 @@ from views.nav_rail import (
     MODULES as NAV_MODULES, PRIVACY as NAV_PRIVACY,
 )
 from views.dashboard_page import DashboardPage
+from views.help import HelpDialog
 from views.instances_page import InstancesPage
 from views.magisk_controller import MagiskController
 from views.modules_page import ModulesPage
@@ -145,6 +146,15 @@ class MainWindow(QWidget):
         self.theme_button.setToolTip("Switches between the light and dark theme.")
         self.theme_button.clicked.connect(self._handle_toggle_theme)
         toolbar.addWidget(self.theme_button)
+        self.help_button = QPushButton("?")
+        self.help_button.setObjectName("HelpButton")
+        self.help_button.setToolTip("Help for this page (%s)"
+                                    % QKeySequence(QKeySequence.HelpContents)
+                                    .toString(QKeySequence.NativeText))
+        self.help_button.clicked.connect(self._show_help)
+        toolbar.addWidget(self.help_button)
+        QShortcut(QKeySequence(QKeySequence.HelpContents), self, self._show_help)
+        self._help_dialog = None
         root_layout.addLayout(toolbar)
 
         body = QHBoxLayout()
@@ -216,12 +226,24 @@ class MainWindow(QWidget):
             logger.warning("navigate to unknown destination %r; ignoring", key)
             return
         self.pages.setCurrentWidget(page)
+        # An open help window follows you from page to page.
+        if self._help_dialog is not None and self._help_dialog.isVisible():
+            self._help_dialog.show_page(key, getattr(self, "_air_mode", False))
         if key == NAV_MODULES:
             self._refresh_running_instances()
         elif key == NAV_INSTANCES:
             self.magisk_controller.refresh_statuses()
         elif key == NAV_PRIVACY:
             self.privacy_controller.refresh_statuses()
+
+    def _show_help(self) -> None:
+        if self._help_dialog is None:
+            self._help_dialog = HelpDialog(self)
+        self._help_dialog.show_page(self.nav_rail.current(),
+                                    getattr(self, "_air_mode", False))
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
 
     def _handle_toggle_theme(self) -> None:
         current = theme.load_saved_theme()

@@ -21,6 +21,13 @@ _DESTINATIONS = [
     (PRIVACY, "Privacy"),
 ]
 
+_TIPS = {
+    DASHBOARD: "Where BlueStacks was found, and whether it is ready to root.",
+    INSTANCES: "Your instances: root them, launch them, restart them.",
+    MODULES: "Install a Magisk module .zip into a running instance.",
+    PRIVACY: "Turn off BlueStacks' ads and telemetry, and block trackers inside Android.",
+}
+
 
 class NavRail(QFrame):
     """Emits ``navigate(str)`` with a destination key (see _DESTINATIONS)."""
@@ -36,6 +43,7 @@ class NavRail(QFrame):
         for key, label in _DESTINATIONS:
             btn = QPushButton(label)
             btn.setCheckable(True)
+            btn.setToolTip(_TIPS[key])
             btn.clicked.connect(lambda _checked, k=key: self.select(k))
             layout.addWidget(btn)
             self._buttons[key] = btn
