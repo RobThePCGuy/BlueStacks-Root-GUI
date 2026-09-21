@@ -312,13 +312,13 @@ def test_windows_grid_keeps_all_columns(qtbot):
     assert _headers(page) == ["Instance", "Root", "R/W", "Manager app"]
 
 
-def test_air_hides_rw_and_magisk_buttons(qtbot):
+def test_air_hides_rw_but_offers_manager_root(qtbot):
+    """Air has no R/W state, but Kyubi (Manager Root) installs there."""
     page = _air_page(qtbot)
     page.checkboxes["Tiramisu64 (AIR)"].setChecked(True)
     assert page.rw_toggle_button.isVisible() is False
-    assert page.install_button.isVisible() is False
+    assert page.install_button.isVisible() is True
     assert page.uninstall_button.isVisible() is False
-    # ...but the things Air *can* do stay available.
     assert page.root_toggle_button.isEnabled() is True
     assert page.launch_button.isEnabled() is True
 

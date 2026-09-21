@@ -78,7 +78,7 @@ def controller(qtbot):
 
 def test_manager_step_is_skipped_cleanly_without_adb(controller):
     msg = controller._finish_with_manager(
-        "data", "install", "Tiramisu64", "conf", adb_exe=None, port=None,
+        {"data_path": "data"}, "install", "Tiramisu64", "conf", adb_exe=None, port=None,
         report=lambda _m: None)
     assert "installed" in msg.lower()
     assert "manager app" in msg.lower()      # tells the user the retry
@@ -90,7 +90,7 @@ def test_a_failed_manager_step_does_not_report_a_failed_install(controller, monk
     monkeypatch.setattr("instance_handler.launch_instance",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no player")))
     msg = controller._finish_with_manager(
-        "data", "install", "Tiramisu64", "conf", adb_exe="adb", port=5555,
+        {"data_path": "data"}, "install", "Tiramisu64", "conf", adb_exe="adb", port=5555,
         report=lambda _m: None)
     assert "Manager Root installed" in msg
     assert "retry" in msg.lower()
@@ -101,7 +101,7 @@ def test_a_boot_timeout_is_reported_as_a_follow_up(controller, monkeypatch):
     monkeypatch.setattr("instance_handler.launch_instance", lambda *a, **k: None)
     monkeypatch.setattr("adb_handler.wait_until_ready", lambda *a, **k: None)
     msg = controller._finish_with_manager(
-        "data", "install", "Tiramisu64", "conf", adb_exe="adb", port=5555,
+        {"data_path": "data"}, "install", "Tiramisu64", "conf", adb_exe="adb", port=5555,
         report=lambda _m: None)
     assert "did not finish booting" in msg
 
@@ -117,12 +117,12 @@ def test_the_happy_path_installs_the_app_and_records_it(controller, monkeypatch)
     monkeypatch.setattr("magisk_system.add_component", recorded)
 
     msg = controller._finish_with_manager(
-        "data", "install", "Tiramisu64", "conf", adb_exe="adb", port=5555,
+        {"data_path": "data"}, "install", "Tiramisu64", "conf", adb_exe="adb", port=5555,
         report=lambda _m: None)
 
     installed.assert_called_once()
     recorded.assert_called_once_with("data", "manager")   # status stays honest
-    assert "Magisk app are installed" in msg
+    assert "app are installed" in msg
 
 
 def test_adb_is_enabled_before_launching(controller, monkeypatch):
@@ -134,6 +134,6 @@ def test_adb_is_enabled_before_launching(controller, monkeypatch):
                         lambda path, key, val: wrote.append((key, val)))
     monkeypatch.setattr("instance_handler.launch_instance", lambda *a, **k: None)
     monkeypatch.setattr("adb_handler.wait_until_ready", lambda *a, **k: None)
-    controller._finish_with_manager("data", "install", "Tiramisu64", "conf",
+    controller._finish_with_manager({"data_path": "data"}, "install", "Tiramisu64", "conf",
                                     adb_exe="adb", port=5555, report=lambda _m: None)
     assert (constants.ENABLE_ADB_KEY, "1") in wrote

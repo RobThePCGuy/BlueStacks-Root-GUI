@@ -195,11 +195,17 @@ uid=0(root) gid=0(root) groups=0(root),...
 
 To undo, click the same button (now **"Remove Root (all instances)"**). It restores the pristine image from the backup the first root made.
 
+#### Kyubi (Manager Root) on Air
+
+For modules, **ReZygisk** and **LSPosed**, click **Manager Root** instead. It installs [Kyubi](https://github.com/RobThePCGuy/Kyubi), the emulator Magisk build this tool uses on Windows too, into the same shared system image. BlueStacks restarts, and the Kyubi app is installed for you. Then **ReZygisk**, **LSPosed** and **Restart** work as they do on Windows, and the **Modules** page appears for any other module `.zip`.
+
+Kyubi replaces the plain `su` (both provide root and would conflict). **Remove Manager Root** takes it out again; if nothing else was changed, the original image is put back byte for byte.
+
 > [!NOTE]
 > On Air the button says *"all instances"* because it means it: every Air instance boots one shared system image, so there is no per-instance root. This also means a BlueStacks update wipes root — it replaces that image. The tool notices and stops reporting the instance as rooted; just click the button again.
 
 > [!TIP]
-> The Modules tab, the R/W toggle and the Magisk buttons are hidden on Air. They are not missing features to work around: Air has no `.bstk` files to flip, and the Magisk installer drives Windows VHDs through bundled `.exe` tools.
+> The R/W toggle is hidden on Air: Air has no `.bstk` files to flip. The Modules tab appears once Kyubi is installed.
 
 > [!IMPORTANT]
 > **While rooted, `BlueStacks.app`'s code signature no longer validates.** `Root.qcow2` is a sealed resource of the bundle, so changing it invalidates the seal — `codesign --verify` and `spctl` both start failing. This is unavoidable for any change to the guest system, not something the tool works around. In practice BlueStacks still launches and runs normally, because macOS does not re-run Gatekeeper on an app that is already installed and has been opened.
@@ -252,7 +258,7 @@ Everything the tool put on disk lives in two places, both outside the bundle and
 
 | BlueStacks | Root Working? | Method |
 |-----------|---------------|--------|
-| **Air** (Apple Silicon, arm64) | Yes | Inject `su` into the shared `Root.qcow2` — Air ships none |
+| **Air** (Apple Silicon, arm64) | Yes | Inject `su`, or Kyubi (Manager Root), into the shared `Root.qcow2` — Air ships no `su` |
 | **Intel / x86 macOS build** | **Not yet** | Different product: VirtualBox + VHDX + x86 guest. Detected and skipped, never modified. |
 
 **Verified rooted**: every instance reports `uid=0` after toggling root:
@@ -376,6 +382,7 @@ Undo restores the pristine backup, so nothing about the change is one-way.
 - `macos_locator.py`: Finds a BlueStacks Air install (app bundle, shared data dir, instances) and reports it in `registry_handler`'s shape. Reads the player's Mach-O architecture and fails closed on anything that isn't Apple Silicon, so an Intel install is never mistaken for Air
 - `macos_root.py`: Roots BlueStacks Air by injecting `su` into the shared `Root.qcow2` via bundled `qemu-img` + Homebrew `debugfs`, with a backup outside the bundle and an image fingerprint so a BlueStacks update can't leave a stale "rooted" claim
 - `macos_su.py`: Builds the 223-byte statically-linked aarch64 `su` that gets injected; full assembly listing in the module docstring
+- `macos_kyubi.py`: Installs Kyubi (Manager Root) into the Air system image: the arm64 Magisk binaries, a boot hook that uses `/debug_ramdisk` (Air has no `/sbin`), and a script the guest runs at boot to copy the binaries into `/data/adb/magisk`, so no per-instance disk is edited
 - `adb_handler.py`: Pushes/flashes a module `.zip`, and installs/removes the Magisk manager app, over BlueStacks' bundled ADB
 - `integrity_patch.py` / `root_persistence.py`: Engine patches (5.22+ integrity bypass, keep root enabled) with `.prepatch.bak` backups
 - `su_patch.py` / `su_patch_offline.py`: Patch-mode app root; flips the guest `su` `isDeveloperMode` gate inside `Data.vhdx` (bundled VHD/VHDX + ext4 reader, no ADB required)

@@ -48,7 +48,7 @@ def test_install_manager_success_runs_install_against_connected_serial(tmp_path)
     runner = _runner(handle)
     msg = install_manager("adb", 5555, apk, runner=runner)
 
-    assert "Installed the Magisk manager" in msg
+    assert "Installed the Kyubi app" in msg
     inst = next(c for c in runner.calls if "install" in c)
     assert inst[:3] == ["adb", "-s", "127.0.0.1:5555"]
     assert inst[-3:] == ["install", "-r", apk]
