@@ -347,7 +347,9 @@ def _blocked_by_app_management(exc: OSError, image: str) -> bool:
         st = os.stat(image)
     except OSError:
         return False
-    if st.st_uid == os.getuid():
+    # No uid/gid on Windows, where the suite also runs this: st_mode's owner
+    # bit there mirrors the read-only attribute, which is the right question.
+    if not hasattr(os, "getuid") or st.st_uid == os.getuid():
         bit = stat.S_IWUSR
     elif st.st_gid in os.getgroups():
         bit = stat.S_IWGRP
