@@ -70,6 +70,16 @@ done
     --add-data "build/e2fsprogs-macos:tools/e2fsprogs-macos" \
     main.py
 
+# Smoke-test the tools where the finished app will look for them. A mismatch
+# between the --add-data destination above and macos_root._bundled_e2fs_dir()
+# would otherwise ship an app that silently needs Homebrew again.
+BUNDLED="dist/BlueStacksRootGUI.app/Contents/Frameworks/tools/e2fsprogs-macos"
+for tool in debugfs e2fsck; do
+    "$BUNDLED/$tool" -V >/dev/null 2>&1 || { echo "Bundled $tool missing or broken in $BUNDLED" >&2; exit 1; }
+done
+grep -q '"tools", "e2fsprogs-macos"' macos_root.py \
+    || { echo "macos_root._bundled_e2fs_dir() no longer points at tools/e2fsprogs-macos" >&2; exit 1; }
+
 # ditto keeps the bundle's symlinks and signature intact; plain zip does not.
 ditto -c -k --keepParent dist/BlueStacksRootGUI.app dist/BlueStacksRootGUI-macOS.zip
 echo "Built dist/BlueStacksRootGUI.app and dist/BlueStacksRootGUI-macOS.zip"
