@@ -120,9 +120,23 @@ ADB_GRANT_BODY = (
 )
 
 
-def status(app_path: str, data_dir: str = macos_locator.DATA_DIR) -> dict | None:
-    """Recorded Kyubi install, or None. Shaped like ``magisk_system.magisk_status``."""
-    return macos_root.read_modstate(app_path, data_dir).get("kyubi")
+def status(app_path: str, data_dir: str = macos_locator.DATA_DIR,
+           instance: str | None = None) -> dict | None:
+    """Recorded Kyubi install, or None. Shaped like ``magisk_system.magisk_status``.
+
+    Kyubi itself is install-wide (one shared system image), but the Kyubi app
+    is installed into each instance's own data disk, so ``manager`` appears in
+    ``components`` only for the instances it was installed into.
+    """
+    kyubi = macos_root.read_modstate(app_path, data_dir).get("kyubi")
+    if not kyubi:
+        return None
+    result = dict(kyubi)
+    comps = ["system"]
+    if instance and instance in (kyubi.get("manager_instances") or []):
+        comps.append("manager")
+    result["components"] = comps
+    return result
 
 
 def _cache_dir() -> str:
@@ -242,10 +256,12 @@ def install(app_path: str, progress=None,
              BOOTANIM, mode=0o100664, uid=1000, gid=1000)
         results.append("installed Kyubi into %s" % GUEST_MAGISK_DIR)
 
+    # An update rewrites the image but leaves each instance's Kyubi app alone.
+    previous = (state.get("kyubi") or {}).get("manager_instances") or []
     state["root"] = False
     state["kyubi"] = {"version": magisk_payload.PAYLOAD_VERSION,
                       "payload_sha256": payload_sha,
-                      "components": ["system"]}
+                      "manager_instances": previous}
     macos_root.write_modstate(app_path, data_dir, state)
     _step("Kyubi installed. Start BlueStacks to finish setup.")
     results.append("Kyubi installed. Start BlueStacks to finish setup.")
@@ -292,24 +308,36 @@ def uninstall(app_path: str, progress=None,
 
 
 def add_component(app_path: str, component: str,
-                  data_dir: str = macos_locator.DATA_DIR) -> None:
-    state = macos_root.read_modstate(app_path, data_dir)
-    kyubi = state.get("kyubi")
-    if not kyubi:
-        return
-    comps = set(kyubi.get("components") or [])
-    comps.add(component)
-    kyubi["components"] = sorted(comps)
-    # Re-stamping is safe here: the image has not changed since read_modstate
-    # validated it.
-    macos_root.write_modstate(app_path, data_dir, state)
+                  data_dir: str = macos_locator.DATA_DIR,
+                  instance: str | None = None) -> None:
+    """Record the Kyubi app as installed in ``instance``.
+
+    ``component`` mirrors ``magisk_system.add_component``; only "manager" is
+    tracked on Air, since the system part is implied by Kyubi being recorded.
+    """
+    _set_manager(app_path, data_dir, instance, component == "manager", True)
 
 
 def remove_component(app_path: str, component: str,
-                     data_dir: str = macos_locator.DATA_DIR) -> None:
+                     data_dir: str = macos_locator.DATA_DIR,
+                     instance: str | None = None) -> None:
+    _set_manager(app_path, data_dir, instance, component == "manager", False)
+
+
+def _set_manager(app_path, data_dir, instance, is_manager, present) -> None:
+    if not (is_manager and instance):
+        return
     state = macos_root.read_modstate(app_path, data_dir)
     kyubi = state.get("kyubi")
     if not kyubi:
         return
-    kyubi["components"] = sorted(set(kyubi.get("components") or []) - {component})
+    names = set(kyubi.get("manager_instances") or [])
+    if present:
+        names.add(instance)
+    else:
+        names.discard(instance)
+    kyubi["manager_instances"] = sorted(names)
+    kyubi.pop("components", None)
+    # Re-stamping is safe: the image has not changed since read_modstate
+    # validated it.
     macos_root.write_modstate(app_path, data_dir, state)

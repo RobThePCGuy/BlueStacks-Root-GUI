@@ -65,20 +65,23 @@ class MagiskController:
 
     def _status(self, instance):
         if instance.get("air_mode"):
-            return macos_kyubi.status(*self._air_args(instance))
+            return macos_kyubi.status(*self._air_args(instance),
+                                      instance=instance["original_name"])
         return magisk_system.magisk_status(instance["data_path"])
 
     def _add_component(self, instance, component) -> None:
         if instance.get("air_mode"):
             app_path, data_dir = self._air_args(instance)
-            macos_kyubi.add_component(app_path, component, data_dir)
+            macos_kyubi.add_component(app_path, component, data_dir,
+                                      instance=instance["original_name"])
         else:
             magisk_system.add_component(instance["data_path"], component)
 
     def _remove_component(self, instance, component) -> None:
         if instance.get("air_mode"):
             app_path, data_dir = self._air_args(instance)
-            macos_kyubi.remove_component(app_path, component, data_dir)
+            macos_kyubi.remove_component(app_path, component, data_dir,
+                                         instance=instance["original_name"])
         else:
             magisk_system.remove_component(instance["data_path"], component)
 
@@ -378,7 +381,6 @@ class MagiskController:
             return
         app_path, data_dir = self._air_args(instance)
         installed_sha = (st.get("payload_sha256") or "").lower()
-        had_manager = "manager" in (st.get("components") or [])
 
         def job(progress):
             progress("Checking the latest Kyubi...", 0)
@@ -394,8 +396,6 @@ class MagiskController:
             QThread.msleep(constants.PROCESS_TERMINATION_WAIT_MS)
             macos_kyubi.install(app_path, progress=StepReporter(progress, _STEPS_UPDATE),
                                 data_dir=data_dir)
-            if had_manager:
-                macos_kyubi.add_component(app_path, "manager", data_dir)
             return ("Kyubi updated to %s. Start BlueStacks; if the Kyubi app "
                     "asks, update it too." % latest_ver)
 
