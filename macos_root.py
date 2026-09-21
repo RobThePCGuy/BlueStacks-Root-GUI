@@ -447,6 +447,9 @@ def ensure_backup(image: str, data_dir: str, *, image_is_pristine: bool,
     different way -- a BlueStacks update replaces the image, and a stale backup
     would undo to the previous build's ``/system``.
     """
+    # Before the 1.7 GB copy: a missing App Management grant should cost the
+    # user nothing but the message.
+    check_image_writable(image)
     backup = backup_path(data_dir)
     if os.path.isfile(backup) and not image_is_pristine:
         return backup
