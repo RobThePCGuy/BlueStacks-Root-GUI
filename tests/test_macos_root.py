@@ -9,6 +9,7 @@ produce an actionable message rather than a raw errno.
 """
 from __future__ import annotations
 
+import errno
 import json
 import os
 import struct
@@ -116,19 +117,33 @@ def test_missing_e2fsprogs_explains_how_to_install_it(monkeypatch):
 def test_app_management_denial_is_translated(monkeypatch, tmp_path):
     """macOS refuses bundle writes with EPERM even as root.
 
-    Elevating does not help, so the message must send the user to the App
-    Management setting instead of implying they need admin rights.
+    EPERM on a file whose mode already allows the write is App Management.
+    Elevating cannot fix it (root does not inherit the grant), so there must be
+    no password prompt: the tool opens the setting and says what to switch on.
     """
-    def deny(script, *, label, timeout=1800):
-        raise platform_support.ElevationError(
-            "%s failed: cp: /Applications/BlueStacks.app/Contents/img/"
-            "Root.qcow2: Operation not permitted" % label)
-
-    monkeypatch.setattr(platform_support, "run_elevated", deny)
-    src, dst = tmp_path / "new.qcow2", tmp_path / "old.qcow2"
+    src, dst = tmp_path / "new.qcow2", tmp_path / "Root.qcow2"
     src.write_bytes(b"x")
+    dst.write_bytes(b"old")
+    dst.chmod(0o666)
+
+    real_open = open
+
+    def tcc_open(path, mode="r", *a, **k):
+        if str(path) == str(dst) and "+" in mode:
+            raise PermissionError(errno.EPERM, "Operation not permitted", str(path))
+        return real_open(path, mode, *a, **k)
+
+    prompted, opened = [], []
+    monkeypatch.setattr("builtins.open", tcc_open)
+    monkeypatch.setattr(platform_support, "run_elevated",
+                        lambda *a, **k: prompted.append(1))
+    monkeypatch.setattr(macos_root, "open_app_management_settings",
+                        lambda: opened.append(1))
+
     with pytest.raises(macos_root.RootError, match="App Management"):
         macos_root._install_image(str(src), str(dst), label="update the image")
+    assert prompted == [], "a prompt here can never succeed"
+    assert opened == [1]
 
 
 def test_cancelled_prompt_is_not_reported_as_app_management(monkeypatch, tmp_path):

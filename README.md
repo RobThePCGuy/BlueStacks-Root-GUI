@@ -105,7 +105,16 @@ Output lands in the `dist/` folder.
 > [!IMPORTANT]
 > **Apple Silicon only.** This supports **BlueStacks Air** on M-series Macs. The older **Intel (x86) macOS build is not supported yet** — it is a different product inside: VirtualBox-based, with VHDX disks and an x86 Android guest, none of which the Air method fits. The tool detects the player's architecture and refuses an Intel install rather than touching it, so there is no risk in trying.
 
-Run from source; there is no packaged build yet.
+1. Download **`BlueStacksRootGUI-macOS.zip`** from **[Releases](https://github.com/RobThePCGuy/BlueStacks-Root-GUI/releases)**, double-click it, and drag **BlueStacksRootGUI** into **Applications**.
+2. **Open it the first time.** The app is not notarized by Apple, so macOS refuses it with *"Apple could not verify..."*. Click **Done**, then go to **System Settings → Privacy & Security**, scroll down to *"BlueStacksRootGUI.app was blocked to protect your Mac"*, and click **Open Anyway**. You only do this once per version.
+3. **Grant App Management when asked.** Rooting writes into `BlueStacks.app`, which macOS only allows for apps you approve. The first time you click Root, the tool opens **System Settings → Privacy & Security → App Management** for you. Switch **BlueStacksRootGUI** on and choose **Quit & Reopen**, then click Root again. You redo this after updating the tool, because macOS ties the permission to that exact build.
+
+That is all. Nothing else to install: the app carries its own copy of the disk tools rooting needs, and it uses the `qemu-img` and `adb` that ship inside BlueStacks Air. You do **not** need `sudo`, and you will not see a password prompt. That is not a shortcut: App Management is granted to an *application*, not to a user, so a root helper would **not** inherit it. `Root.qcow2` is already mode `rw-rw-rw-`, so once App Management is granted the plain write goes through. (The tool still falls back to an authorization prompt for installs whose image genuinely is not user-writable.)
+
+> [!TIP]
+> Prefer Terminal to the Privacy & Security dance? `xattr -dr com.apple.quarantine /Applications/BlueStacksRootGUI.app` clears the download flag and the app opens normally.
+
+#### Running from source on macOS
 
 ```bash
 git clone https://github.com/RobThePCGuy/BlueStacks-Root-GUI.git
@@ -113,16 +122,20 @@ cd BlueStacks-Root-GUI
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-brew install e2fsprogs        # required: rooting edits the guest ext4
+brew install e2fsprogs        # from source, rooting uses Homebrew's debugfs
 python main.py
 ```
 
-Two things are different from Windows, and both are one-time:
+From source, App Management goes to your **terminal** app instead of BlueStacksRootGUI.
 
-1. **`brew install e2fsprogs`.** Rooting edits the Android system image with `debugfs`, which macOS does not ship. The Windows build bundles its own copy; the macOS one uses Homebrew's. The app tells you if it is missing.
-2. **Grant App Management.** Rooting writes back into `BlueStacks.app`, and since macOS Ventura that needs **System Settings → Privacy & Security → App Management** for whatever runs the tool (your terminal when running from source). You may need to quit and reopen it afterwards.
+#### Building the macOS app
 
-You do **not** need `sudo`, and normally you will not see a password prompt at all. That is not a shortcut — it is the only thing that works. App Management is granted to an *application*, not to a user, so a root helper does **not** inherit your terminal's grant: running the copy as root fails where writing it directly succeeds. `Root.qcow2` is already mode `rw-rw-rw-`, so once App Management is granted the plain write goes through. (The tool still falls back to an authorization prompt for installs whose image genuinely is not user-writable.)
+```bash
+brew install e2fsprogs
+./tools/build_macos_app.sh
+```
+
+Output: `dist/BlueStacksRootGUI.app` and `dist/BlueStacksRootGUI-macOS.zip`. The script copies Homebrew's `debugfs`/`e2fsck` and their libraries into the bundle and rewrites them to load from there, so the result runs on a Mac without Homebrew. Pushing a `v*` tag builds this on an Apple Silicon runner and attaches the zip to the release next to the Windows `.exe`.
 
 ## Usage Guide
 
@@ -168,9 +181,9 @@ schtasks /Change /TN "BlueStacksHelper_nxt" /DISABLE
 
 ### Rooting BlueStacks Air (macOS)
 
-Set up per [Option 3](#option-3-macos--bluestacks-air-apple-silicon) first — `brew install e2fsprogs` and the App Management permission are both required.
+Set up per [Option 3](#option-3-macos--bluestacks-air-apple-silicon) first. BlueStacks Air must have been opened once, so its instance exists.
 
-1. **Close BlueStacks**, then start the tool (`python main.py`). The Dashboard shows `AIR v5.21.x` and your data directory.
+1. **Close BlueStacks**, then open **BlueStacksRootGUI**. The Dashboard shows `AIR v5.21.x` and your data directory.
 2. Go to **Instances**, tick your instance, and click **"Root (all instances)"**.
 3. Wait. The pass takes a couple of minutes — most of it is unpacking and repacking a 1.7 GB image.
 4. **Start BlueStacks.** `su` is now at `/system/xbin/su`, on the guest `PATH`, so both `adb shell su` and root-checker apps see it:
@@ -382,7 +395,7 @@ See `requirements.txt`. Key dependencies:
 - pywin32 (Windows only — marked with an environment marker so `pip install` works on macOS)
 - psutil
 
-On macOS, rooting also needs **e2fsprogs** (`brew install e2fsprogs`) for `debugfs`/`e2fsck`; the Windows build bundles its own copy in `tools/e2fsprogs/`. `qemu-img` and `adb` come from the BlueStacks Air bundle itself, so there is nothing to install for those.
+On macOS, running from source needs **e2fsprogs** (`brew install e2fsprogs`) for `debugfs`/`e2fsck`; the packaged macOS app bundles its own (see `tools/build_macos_app.sh`), as the Windows build does in `tools/e2fsprogs/`. `qemu-img` and `adb` come from the BlueStacks Air bundle itself, so there is nothing to install for those.
 
 ### Running Tests
 

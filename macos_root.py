@@ -50,12 +50,15 @@ cheap insurance next to a 1.7 GB rewrite.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import logging
 import os
 import shutil
+import stat
 import struct
 import subprocess
+import sys
 import tempfile
 
 import macos_locator
@@ -109,8 +112,9 @@ APP_MANAGEMENT_HINT = (
     "Modifying another app's bundle needs the \"App Management\" privilege, "
     "which administrator rights alone do not provide. Grant it here:\n\n"
     "    System Settings > Privacy & Security > App Management\n\n"
-    "...then enable this app (or your terminal, if you are running from "
-    "source) and try again."
+    "(opened for you just now). Enable BlueStacksRootGUI (or your terminal, "
+    "if you are running from source). macOS will then ask to quit and reopen "
+    "it; do that and try again."
 )
 
 _EPERM_MARKERS = ("Operation not permitted", "not permitted")
@@ -124,8 +128,21 @@ class RootError(RuntimeError):
 # Tool discovery
 # --------------------------------------------------------------------------
 
+def _bundled_e2fs_dir() -> str | None:
+    """Where the packaged .app carries its own debugfs/e2fsck, when frozen.
+
+    ``tools/build_macos_app.sh`` relocates Homebrew's copies (and their dylibs)
+    into the bundle so a downloaded app needs no Homebrew at all.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.join(sys._MEIPASS, "tools", "e2fsprogs-macos")  # type: ignore[attr-defined]
+    return None
+
+
 def _find_tool(name: str) -> str | None:
-    for directory in _E2FS_SEARCH_DIRS:
+    bundled = _bundled_e2fs_dir()
+    dirs = ((bundled,) if bundled else ()) + _E2FS_SEARCH_DIRS
+    for directory in dirs:
         candidate = os.path.join(directory, name)
         if os.access(candidate, os.X_OK):
             return candidate
@@ -311,6 +328,60 @@ def _copy_in_place(source: str, dest: str) -> None:
         dst.truncate()
 
 
+# Opens System Settings straight at Privacy & Security > App Management.
+APP_MANAGEMENT_URL = ("x-apple.systempreferences:com.apple.preference.security"
+                      "?Privacy_AppBundles")
+
+
+def _blocked_by_app_management(exc: OSError, image: str) -> bool:
+    """EPERM on a file the user may write is App Management, not permissions.
+
+    POSIX refusal is EACCES, and is what elevating fixes. EPERM on a file whose
+    mode already lets us write it is TCC refusing, which elevating does not fix.
+    The mode bits are read directly: ``os.access`` also answers "no" while TCC
+    is blocking, which would hide the very case this detects.
+    """
+    if exc.errno != errno.EPERM:
+        return False
+    try:
+        st = os.stat(image)
+    except OSError:
+        return False
+    # No uid/gid on Windows, where the suite also runs this: st_mode's owner
+    # bit there mirrors the read-only attribute, which is the right question.
+    if not hasattr(os, "getuid") or st.st_uid == os.getuid():
+        bit = stat.S_IWUSR
+    elif st.st_gid in os.getgroups():
+        bit = stat.S_IWGRP
+    else:
+        bit = stat.S_IWOTH
+    return bool(st.st_mode & bit)
+
+
+def open_app_management_settings() -> None:
+    try:
+        subprocess.Popen(["/usr/bin/open", APP_MANAGEMENT_URL])
+    except OSError:
+        logger.debug("could not open System Settings", exc_info=True)
+
+
+def check_image_writable(image: str) -> None:
+    """Fail before any work if macOS will refuse the final write.
+
+    Opening for update is enough to trigger the App Management check and writes
+    nothing, so the user hears about the missing permission up front instead of
+    after the image has been unpacked, and without a password prompt.
+    """
+    try:
+        with open(image, "r+b"):
+            pass
+    except OSError as exc:
+        if _blocked_by_app_management(exc, image):
+            open_app_management_settings()
+            raise RootError(APP_MANAGEMENT_HINT) from exc
+        # Anything else is left to _install_image's elevated fallback.
+
+
 def _install_image(source: str, image: str, *, label: str) -> None:
     """Write ``source`` over the bundle's image, unelevated where possible.
 
@@ -331,6 +402,12 @@ def _install_image(source: str, image: str, *, label: str) -> None:
         _copy_in_place(source, image)
         return
     except OSError as direct_exc:
+        if _blocked_by_app_management(direct_exc, image):
+            # The elevated copy below cannot succeed here (root does not
+            # inherit the grant), so asking for a password would be a prompt
+            # that is guaranteed to fail. Send the user to the switch instead.
+            open_app_management_settings()
+            raise RootError(APP_MANAGEMENT_HINT) from direct_exc
         logger.info("Direct write to %s failed (%s); trying with administrator "
                     "rights.", image, direct_exc)
         direct_blocked = isinstance(direct_exc, PermissionError)
@@ -389,6 +466,7 @@ def restore_pristine(image: str, data_dir: str, step=None) -> list[str]:
     """
     backup = backup_path(data_dir)
     results = []
+    check_image_writable(image)
     if step:
         step("Restoring the original Android system image...")
     _install_image(backup, image,
@@ -476,6 +554,7 @@ def open_image(app_path: str, progress=None, *, results: list[str] | None = None
     if not os.path.isfile(image):
         raise RootError("Android system image not found at %s" % image)
 
+    check_image_writable(image)
     debugfs, e2fsck = find_e2fs_tools()
     qemu_img = find_qemu_img(app_path)
     # A 10 GiB sparse raw plus the rebuilt qcow2; the raw only ever holds the
