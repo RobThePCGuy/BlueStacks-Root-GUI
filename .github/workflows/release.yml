@@ -1,8 +1,8 @@
 name: Release
 
-# Build the Windows executable and publish a GitHub Release whenever a
-# version tag (e.g. v3.0.0) is pushed. Can also be run manually to produce
-# a build artifact without cutting a release.
+# Build the Windows executable and the macOS app, then publish both to one
+# GitHub Release whenever a version tag (e.g. v3.0.0) is pushed. Can also be
+# run manually to produce build artifacts without cutting a release.
 on:
   push:
     tags:
@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -45,13 +45,55 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: BlueStacksRootGUI
+          name: BlueStacksRootGUI-windows
           path: dist/BlueStacksRootGUI.exe
           if-no-files-found: error
 
+  # BlueStacks Air is Apple Silicon only, and macos-14 is Apple Silicon. The
+  # script bundles debugfs/e2fsck so the download needs no Homebrew.
+  build-macos:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install e2fsprogs
+        run: brew install e2fsprogs
+
+      - name: Build app
+        run: ./tools/build_macos_app.sh
+        env:
+          PYTHON: python
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueStacksRootGUI-macos
+          path: dist/BlueStacksRootGUI-macOS.zip
+          if-no-files-found: error
+
+  # One job publishes both files, so two builds never race to create the release.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/BlueStacksRootGUI.exe
+          files: |
+            dist/BlueStacksRootGUI.exe
+            dist/BlueStacksRootGUI-macOS.zip
           generate_release_notes: true
