@@ -132,12 +132,12 @@ class InstancesPage(QWidget):
         self.root_toggle_button.setToolTip(self._native_tip)
         self.root_toggle_button.clicked.connect(self.toggle_root_requested.emit)
         self.install_button = QPushButton("Manager Root")
-        self.install_button.setToolTip(
+        self._manager_tip = (
             "Magisk-managed root: adds modules, Zygisk and LSPosed. Installed "
             "into the system image offline; switches off Native Root for you.")
         self.install_button.clicked.connect(self.install_requested.emit)
         self.uninstall_button = QPushButton("Remove Manager Root")
-        self.uninstall_button.setToolTip(
+        self._remove_manager_tip = (
             "Removes Magisk and restores the stock system image.")
         self.uninstall_button.clicked.connect(self.uninstall_requested.emit)
         for _b in (self.root_toggle_button, self.install_button, self.uninstall_button):
@@ -155,12 +155,12 @@ class InstancesPage(QWidget):
         self.update_button.clicked.connect(self.update_requested.emit)
         self.manager_button = QPushButton("Manager app")
         self.manager_button.setToolTip(
-            "Installs the Magisk app over ADB. Normally handled for you when "
+            "Installs the Kyubi app over ADB. Normally handled for you when "
             "Manager Root is installed; this is the retry if that did not run.")
         self.manager_button.clicked.connect(self.install_manager_requested.emit)
         self.remove_manager_button = QPushButton("Remove app")
         self.remove_manager_button.setToolTip(
-            "Uninstalls the Magisk app. Leaves the root itself in place.")
+            "Uninstalls the Kyubi app. Leaves the root itself in place.")
         self.remove_manager_button.clicked.connect(self.uninstall_manager_requested.emit)
         self.rezygisk_button = QPushButton("ReZygisk")
         self.rezygisk_button.setToolTip(
@@ -262,7 +262,7 @@ class InstancesPage(QWidget):
             checkbox.setToolTip(unique_id)
             checkbox.toggled.connect(self._update)
 
-            root_label = QLabel(("On" if app_root else "Off") if air
+            root_label = QLabel(self._air_root_text(app_root, magisk) if air
                                 else self._root_text(app_root, magisk))
             # Styled by object name in the theme's QSS instead of a hard-coded
             # colour, so it follows the light/dark palette like everything else.
@@ -293,10 +293,11 @@ class InstancesPage(QWidget):
         "Root": ("Off, Native (BlueStacks' own su), Manager (Magisk), or "
                  "Native + Manager, which conflict."),
         "R/W": "On means the system disk is writable.",
-        "Manager app": "Whether the Magisk app is installed in the instance.",
+        "Manager app": "Whether the Kyubi app is installed in the instance.",
     }
 
-    _AIR_ROOT_TIP = "On means su is installed. On Air it covers every instance."
+    _AIR_ROOT_TIP = ("On: plain su. Manager: Kyubi, with modules. On Air either "
+                     "one covers every instance.")
 
     @staticmethod
     def _row_label(unique_id: str, data: dict) -> str:
@@ -313,6 +314,12 @@ class InstancesPage(QWidget):
         if magisk:
             return "Manager"
         return "Native" if app_root else "Off"
+
+    @staticmethod
+    def _air_root_text(app_root: bool, magisk: dict | None) -> str:
+        if magisk:
+            return "Manager"
+        return "On" if app_root else "Off"
 
     @staticmethod
     def _magisk_text(magisk: dict | None) -> str:
@@ -395,6 +402,10 @@ class InstancesPage(QWidget):
             # Air root is install-wide, so the label follows the install, not
             # the tick: otherwise an unticked, rooted install reads "Root".
             app_root = any(d.get("root_enabled") for d in self._instance_data.values())
+            installed = any(self._magisk.get(k) for k in self._instance_data)
+            st = next((self._magisk[k] for k in self._instance_data
+                       if self._magisk.get(k)), None)
+            manager = installed and "manager" in (st.get("components") or [])
             # "Native Root" would understate it: on Air this installs su into
             # the shared system image, so it roots every instance at once.
             self.root_toggle_button.setText(
@@ -412,10 +423,22 @@ class InstancesPage(QWidget):
             self.root_toggle_button.setToolTip(self._native_tip)
 
         self.rw_toggle_button.setVisible(not air)
+        # On Air the two roots are install-wide and mutually exclusive: with
+        # Kyubi in, the plain-su button would only ever be refused.
+        self.root_toggle_button.setVisible(not (air and installed))
+        if air:
+            self.install_button.setToolTip(
+                "Kyubi (Magisk-managed root): adds modules, ReZygisk and LSPosed. "
+                "Covers every Air instance and replaces the plain su.")
+            self.uninstall_button.setToolTip(
+                "Takes Kyubi out of the system image every Air instance shares.")
+        else:
+            self.install_button.setToolTip(self._manager_tip)
+            self.uninstall_button.setToolTip(self._remove_manager_tip)
 
         # Show only the actions that apply, in flow order. A present but disabled
         # button reads as "you could do this" when you can't.
-        one = uid is not None and not air
+        one = uid is not None
         show_install = one and not installed
         self.install_button.setVisible(show_install)
         self.uninstall_button.setVisible(one and installed)

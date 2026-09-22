@@ -29,6 +29,7 @@ import admin
 # the Air code paths below ever call into them. The UI branches on the
 # installation's `air_mode` flag rather than on the host platform, so a
 # platform check here would be the wrong question to ask.
+import macos_kyubi
 import macos_locator
 import macos_root
 
@@ -268,8 +269,6 @@ class MainWindow(QWidget):
         # inapplicable button is ever shown, even briefly.
         self._air_mode = any(i.get("air_mode") for i in self.installations)
         self.instances_page.set_air_mode(self._air_mode)
-        if self._air_mode:
-            self.nav_rail.set_destination_visible(NAV_MODULES, False)
 
         # Populate instance_data BEFORE refreshing the patch UI: the Dashboard
         # "N / M instances rooted" stat is derived from instance_data, so
@@ -308,7 +307,8 @@ class MainWindow(QWidget):
             # button disabled, so a banner pointing there would be a dead end.
             self.instances_page.set_engine_locked_banner(state in ("unpatched", "partial"))
 
-        rooted = sum(1 for d in self.instance_data.values() if d.get("root_enabled"))
+        rooted = sum(1 for d in self.instance_data.values()
+                     if d.get("root_enabled") or d.get("manager_root"))
         self.dashboard_page.set_rooted_count(rooted, len(self.instance_data))
 
     def _engine_state(self) -> str:
@@ -374,6 +374,12 @@ class MainWindow(QWidget):
             # per refresh rather than once per instance.
             air_rooted = (macos_root.image_root_state(inst["app_path"], inst["user_path"])
                           if air_mode else False)
+            air_kyubi = (bool(macos_kyubi.status(inst["app_path"], inst["user_path"]))
+                         if air_mode else False)
+            if air_mode:
+                # Modules install through Kyubi, so the page only means
+                # something on Air once Kyubi is in.
+                self.nav_rail.set_destination_visible(NAV_MODULES, air_kyubi)
 
             disk_instances = set()
             if air_mode:
@@ -439,6 +445,7 @@ class MainWindow(QWidget):
                     "display_name": display_names.get(name, name),
                     "patch_mode": patch_mode,
                     "air_mode": air_mode,
+                    "manager_root": air_kyubi,
                     "app_path": inst.get("app_path"),
                     "user_path": inst.get("user_path"),
                 }

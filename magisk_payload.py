@@ -75,6 +75,16 @@ _TOOLS = {
     "magisk32": (_X86, "libmagisk32.so"),    # 32-bit app root
 }
 
+# BlueStacks Air (Apple Silicon) runs a 64-bit-only arm64 guest: no 32-bit ABI,
+# so no magisk32. Needs a Kyubi release built with arm64-v8a.
+_ARM64 = "arm64-v8a"
+_TOOLS_ARM64 = {
+    "busybox": (_ARM64, "libbusybox.so"),
+    "magisk64": (_ARM64, "libmagisk64.so"),
+    "magiskinit": (_ARM64, "libmagiskinit.so"),
+    "magiskpolicy": (_ARM64, "libmagiskpolicy.so"),
+}
+
 # Non-lib member the system-mode install needs (the Magisk manager stub the app
 # would otherwise write to /system/etc/init/magisk/stub.apk).
 STUB_APK_MEMBER = "assets/stub.apk"
@@ -246,12 +256,14 @@ def latest_identity(progress=None) -> tuple[str, str]:
     return "%s (Kyubi)" % tag, expected.lower()
 
 
-def extract_tools(apk_path: str, dest_dir: str, progress=None) -> dict[str, str]:
+def extract_tools(apk_path: str, dest_dir: str, progress=None, *,
+                  arm64: bool = False) -> dict[str, str]:
     """Extract the Magisk native tools from the APK into ``dest_dir``.
 
     Returns ``{tool_name: path}``.  Files are written under their plain names
     (busybox, magisk64, ...) -- the form Magisk's daemon expects in
-    ``/data/adb/magisk`` -- not the ``lib*.so`` wrapper.
+    ``/data/adb/magisk`` -- not the ``lib*.so`` wrapper.  ``arm64`` selects the
+    BlueStacks Air set instead of the x86 one.
     """
     def _p(msg: str) -> None:
         logger.info(msg)
@@ -263,9 +275,13 @@ def extract_tools(apk_path: str, dest_dir: str, progress=None) -> dict[str, str]
     try:
         with zipfile.ZipFile(apk_path) as z:
             members = set(z.namelist())
-            for tool, (abi, soname) in _TOOLS.items():
+            for tool, (abi, soname) in (_TOOLS_ARM64 if arm64 else _TOOLS).items():
                 member = "lib/%s/%s" % (abi, soname)
                 if member not in members:
+                    if arm64:
+                        raise RuntimeError(
+                            "This Kyubi build has no Apple Silicon (arm64) files "
+                            "yet, so it cannot be installed on BlueStacks Air.")
                     raise RuntimeError(
                         "payload is missing %s (expected %s in the APK)" % (tool, member))
                 target = os.path.join(dest_dir, tool)

@@ -312,7 +312,7 @@ def install_manager(adb_exe: str, port: Optional[int], apk_path: str,
     _p("Connecting to the instance...")
     serial = _resolve_serial(adb_exe, port, runner)
 
-    _p("Installing the Magisk manager (%s)..." % os.path.basename(apk_path))
+    _p("Installing the Kyubi app (%s)..." % os.path.basename(apk_path))
     cp = runner([adb_exe, "-s", serial, "install", "-r", apk_path])
     out = ((cp.stdout or "") + (cp.stderr or "")).strip()
     if cp.returncode == 0 and "Success" in out:
@@ -323,12 +323,12 @@ def install_manager(adb_exe: str, port: Optional[int], apk_path: str,
         # modules survive the restart and the manager did not.) Verified live:
         # without this the manager is gone after restart; with it, it persists.
         runner([adb_exe, "-s", serial, "shell", "sync"])
-        return "Installed the Magisk manager. Open it from the app drawer."
+        return "Installed the Kyubi app. Open it from the app drawer."
 
     low = out.lower()
     if "signatures do not match" in low or "update_incompatible" in low:
         raise RuntimeError(
-            "A different-signed Magisk manager is already installed. Remove it "
+            "A different-signed Kyubi app is already installed. Remove it "
             "first -- \"Remove manager\" on the Magisk tab if this app installed "
             "it, otherwise `adb uninstall %s` or Android Settings -> Apps -- then "
             "retry. Details: %s" % (MANAGER_PACKAGE, out))
@@ -347,14 +347,29 @@ def uninstall_manager(adb_exe: str, port: Optional[int],
 
     _p("Connecting to the instance...")
     serial = _resolve_serial(adb_exe, port, runner)
-    _p("Removing the Magisk manager...")
+    _p("Removing the Kyubi app...")
     cp = runner([adb_exe, "-s", serial, "uninstall", MANAGER_PACKAGE])
     out = ((cp.stdout or "") + (cp.stderr or "")).strip()
     if cp.returncode == 0 and "Success" in out:
-        return "Removed the Magisk manager."
+        return "Removed the Kyubi app."
     if "not installed" in out.lower() or "unknown package" in out.lower():
-        return "Magisk manager was not installed."
+        return "The Kyubi app was not installed."
     raise RuntimeError("Manager uninstall failed: %s" % (out or "unknown error"))
+
+
+def remove_databin(adb_exe: str, port: Optional[int], runner: Runner = _run) -> None:
+    """Delete Kyubi's binaries and the ADB auto-grant from a running instance.
+
+    Used before a BlueStacks Air uninstall, where /data lives in a per-instance
+    disk image the tool does not edit offline. Modules are left in place, as the
+    Windows uninstall leaves them.
+    """
+    serial = _resolve_serial(adb_exe, port, runner)
+    cp = runner([adb_exe, "-s", serial, "shell", "su", "-c",
+                 "rm -rf /data/adb/magisk /data/adb/service.d/00-bsrgui-adbgrant.sh"])
+    if cp.returncode != 0:
+        raise RuntimeError(((cp.stdout or "") + (cp.stderr or "")).strip()
+                           or "could not remove /data/adb/magisk")
 
 
 def list_running_instances(adb_exe: str, instances, runner: Runner = _run) -> dict:

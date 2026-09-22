@@ -271,6 +271,8 @@ def write_modstate(app_path: str, data_dir: str, state: dict) -> None:
         _clear_state(data_dir)
         return
     payload["image"] = _fingerprint(image)
+    payload.pop("su_sha256", None)
+    payload.pop("su_path", None)
     if payload.get("root"):
         # Fingerprint of the exact binary that was injected, so a future
         # version can tell its own su from one somebody else put there.
@@ -429,7 +431,7 @@ def _install_image(source: str, image: str, *, label: str) -> None:
 # block share one image, so neither can decide on its own whether undoing means
 # "restore the pristine backup" or "edit the current image" -- that depends on
 # whether the *other* one is still applied.
-MODIFICATIONS = ("root", "hosts")
+MODIFICATIONS = ("root", "hosts", "kyubi")
 
 
 def applied_modifications(state: dict) -> set[str]:
@@ -627,6 +629,11 @@ def set_root(app_path: str, enabled: bool, progress=None,
         _clear_state(data_dir)   # nothing is applied any more, by definition
         _step("Root removed. Restart BlueStacks for the change to take effect.")
         return results
+
+    if enabled and "kyubi" in active:
+        # Both provide su and would fight over it.
+        raise RootError("Kyubi is installed and already provides root. Remove "
+                        "Kyubi first if you want the plain su instead.")
 
     if enabled:
         ensure_backup(image, data_dir, image_is_pristine=not active, step=_step)

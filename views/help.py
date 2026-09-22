@@ -43,7 +43,8 @@ To stop it recurring, turn off BlueStacks' updater (see the full guide).</p>
 
 _DASHBOARD_AIR = """
 <p>Where BlueStacks Air was found, and whether it is rooted.</p>
-<p>Air has no engine patch to apply. Go to <b>Instances</b> to root it.</p>
+<p>Air has no engine patch to apply. Go to <b>Instances</b> to root it, with a
+plain su or with Kyubi.</p>
 """
 
 _INSTANCES_WINDOWS = """
@@ -75,10 +76,17 @@ when it has to.</p>
 _INSTANCES_AIR = """
 <p>BlueStacks Air ships no su, so rooting adds one to the Android system
 image. Every Air instance shares that one image, so root covers all of them.</p>
+<h3>Two ways to root, pick one</h3>
+<ul>
+<li><b>Root (all instances)</b>: a plain su. Quick, enough for root apps and
+root checkers. No modules.</li>
+<li><b>Manager Root</b>: Kyubi, the Magisk build for emulators. Adds the Kyubi
+app, modules, ReZygisk and LSPosed. Replaces the plain su for you.</li>
+</ul>
 <h3>To root</h3>
 <ol>
-<li>Tick your instance and click <b>Root (all instances)</b>. BlueStacks is
-closed for you.</li>
+<li>Tick your instance and click the one you want. BlueStacks is closed for
+you. Manager Root then starts it again and installs the Kyubi app.</li>
 <li><b>First time only:</b> macOS blocks the change and this tool opens
 <b>System Settings &gt; Privacy &amp; Security &gt; App Management</b>. Switch
 <b>BlueStacksRootGUI</b> on, choose <b>Quit &amp; Reopen</b>, and click Root
@@ -86,8 +94,12 @@ again. After updating this tool you do this once more.</li>
 <li>Wait about a minute, then start BlueStacks. Root apps and root checkers now
 see su.</li>
 </ol>
+<h3>Adding modules (Manager Root)</h3>
+<p><b>ReZygisk</b> first, then <b>LSPosed</b>, then <b>Restart</b> once to
+activate them. Any other module .zip goes through the <b>Modules</b> page.</p>
 <h3>To undo</h3>
-<p>Click <b>Remove Root</b>. The original image is put back exactly as it was.</p>
+<p>Click <b>Remove Root</b> or <b>Remove Manager Root</b>. If that was the only
+change, the original image is put back exactly as it was.</p>
 <h3>Good to know</h3>
 <ul>
 <li>A BlueStacks update replaces the image and removes root. Click Root again.</li>
@@ -108,7 +120,7 @@ _MODULES = """
 </ol>
 <p>This exists because BlueStacks' own file picker hands Magisk a path it cannot
 open. If the tool cannot reach the instance, it leaves the .zip in the
-instance's Download folder so you can flash it from the Magisk app.</p>
+instance's Download folder so you can flash it from the Kyubi app.</p>
 """
 
 _PRIVACY = """
