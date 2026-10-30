@@ -36,15 +36,17 @@ import payload_fetch
 logger = logging.getLogger(__name__)
 
 # --- Auto-latest payload (GitHub release, hash-verified) -------------------
-# No per-release SHA to bump: fetch_apk() resolves the latest Kyubi release from
+# No per-release SHA to bump: fetch_apk() resolves the newest Kyubi release from
 # the GitHub API and verifies the APK against that asset's own published digest.
+# "Newest" includes prereleases: every Kyubi build is published as a prerelease,
+# and /releases/latest skips those, which left the GUI on an old promoted build.
 # Kyubi = RobThePCGuy's stripped, emulator-only Magisk (Kitsune lineage): x86 only,
 # no magiskboot / boot-image path, system-mode install.
 PAYLOAD_REPO = "RobThePCGuy/Kyubi"
 PAYLOAD_ASSET_NAME = "app-release.apk"       # the release asset we install
 PAYLOAD_NAME = "Kyubi-app-release.apk"       # cache filename on disk
 _API = "https://api.github.com/repos/%s/releases" % PAYLOAD_REPO
-LATEST_API = _API + "/latest"
+RELEASES_API = _API + "?per_page=30"         # newest first, prereleases included
 TAG_API = _API + "/tags/%s"                  # used when KYUBI_PAYLOAD_TAG pins a build
 
 # Resolved at fetch time (updated by fetch_apk); read by magisk_system for the
@@ -148,14 +150,26 @@ def _api_get(url: str):
 def _resolve_release():
     """Resolve the Kyubi release to install -> (tag, apk_url, expected_sha256).
 
-    Uses the newest release unless ``KYUBI_PAYLOAD_TAG`` pins one.  The expected
+    Uses the newest published release (prereleases included) that carries the
+    APK, unless ``KYUBI_PAYLOAD_TAG`` pins one.  The expected
     hash comes from the release asset's own ``digest`` (``sha256:...``); if GitHub
     hasn't populated it, a sibling ``<asset>.sha256`` release asset is read as a
     fallback.  ``expected_sha256`` is ``""`` when neither is available -- the
     caller fails closed rather than install something unverified.
     """
     tag_pin = os.environ.get(PIN_TAG_ENV)
-    rel = _api_get(TAG_API % tag_pin if tag_pin else LATEST_API)
+    if tag_pin:
+        rel = _api_get(TAG_API % tag_pin)
+    else:
+        releases = sorted(_api_get(RELEASES_API),
+                          key=lambda r: r.get("published_at") or "", reverse=True)
+        rel = next((r for r in releases
+                    if not r.get("draft")
+                    and any(a.get("name") == PAYLOAD_ASSET_NAME
+                            for a in r.get("assets", []))), None)
+        if rel is None:
+            raise RuntimeError(
+                "No Kyubi release with %s was found." % PAYLOAD_ASSET_NAME)
     tag = rel.get("tag_name") or (tag_pin or "?")
     assets = {a.get("name"): a for a in rel.get("assets", []) if a.get("name")}
 

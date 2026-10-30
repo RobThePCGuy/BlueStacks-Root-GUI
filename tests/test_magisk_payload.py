@@ -270,3 +270,26 @@ def test_latest_identity_fails_closed_without_a_digest(monkeypatch):
                         lambda: ("kyubi-2.0.0", "http://x/app-release.apk", ""))
     with pytest.raises(RuntimeError, match="update"):
         mp.latest_identity()
+
+
+def test_resolve_release_picks_newest_published_prerelease(monkeypatch):
+    """Kyubi publishes every build as a prerelease; /releases/latest would skip
+    them all. The resolver must take the newest published release that carries
+    the APK, ignoring drafts and asset-less releases."""
+    def _rel(tag, published, draft=False, prerelease=True, apk=True):
+        assets = [{"name": mp.PAYLOAD_ASSET_NAME,
+                   "browser_download_url": "https://x/%s.apk" % tag,
+                   "digest": "sha256:" + tag[-1] * 64}] if apk else []
+        return {"tag_name": tag, "published_at": published, "draft": draft,
+                "prerelease": prerelease, "assets": assets}
+    listing = [
+        _rel("v-stable1", "2026-09-22T00:00:00Z", prerelease=False),
+        _rel("v-draft2", None, draft=True),
+        _rel("v-noapk3", "2026-10-30T05:00:00Z", apk=False),
+        _rel("v-pre4", "2026-10-30T04:00:00Z"),
+        _rel("v-pre5", "2026-10-06T00:00:00Z"),
+    ]
+    monkeypatch.delenv(mp.PIN_TAG_ENV, raising=False)
+    monkeypatch.setattr(mp, "_api_get", lambda url: listing)
+    tag, url, sha = mp._resolve_release()
+    assert (tag, url, sha) == ("v-pre4", "https://x/v-pre4.apk", "4" * 64)
