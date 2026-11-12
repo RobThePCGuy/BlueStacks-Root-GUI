@@ -71,6 +71,13 @@ manual changes need. Leave it read-only otherwise.</li>
 </ul>
 <p>Close the instance before changing root; the tool closes BlueStacks for you
 when it has to.</p>
+<h3>Installing without the network</h3>
+<p>Manager Root normally needs one download (the Kyubi build Magisk is installed
+from). To skip it, put <b>app-release.apk</b> from the
+<a href="https://github.com/RobThePCGuy/Kyubi/releases">Kyubi releases</a> in a
+<b>magisk_assets/kyubi</b> folder next to this tool (or next to the .exe). Every
+install and update then runs with no network at all -- which is also the fix if
+you see "GitHub rate-limited this request".</p>
 """
 
 _INSTANCES_AIR = """

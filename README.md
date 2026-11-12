@@ -27,6 +27,7 @@ Windows is the primary platform. **BlueStacks Air on Apple Silicon Macs is also 
   - [Magisk Modules, Kitsune Mask & Older Builds](#magisk-modules-kitsune-mask--older-builds)
   - [Keep Root After Updates](#keep-root-after-updates)
   - [Rooting BlueStacks Air (macOS)](#rooting-bluestacks-air-macos)
+  - [Installing Magisk Without the Network](#installing-magisk-without-the-network)
 - [Troubleshooting](#troubleshooting)
 - [How It Works](#how-it-works)
 - [Features](#features)
@@ -214,6 +215,24 @@ Kyubi replaces the plain `su` (both provide root and would conflict). **Remove M
 
 Everything the tool put on disk lives in two places, both outside the bundle and both removed when you undo: `Root.qcow2.prepatch.bak` (the pristine image) and `Root.qcow2.modstate.json` (what is currently applied), in `/Users/Shared/Library/Application Support/BlueStacks/`.
 
+### Installing Magisk Without the Network
+
+Manager Root (Magisk) needs one file the app does not ship: the [Kyubi](https://github.com/RobThePCGuy/Kyubi) release APK it installs from. With no local copy the tool resolves the newest release over the GitHub API and downloads it once, hash-verified against the digest GitHub publishes for that asset.
+
+To skip that download entirely — offline machine, proxy, or a rate-limited API — fetch it yourself and drop it in:
+
+```
+magisk_assets/kyubi/app-release.apk
+```
+
+- Download **`app-release.apk`** from the [Kyubi releases](https://github.com/RobThePCGuy/Kyubi/releases). The filename must stay exactly `app-release.apk`.
+- Running from source, that is `<repo>/magisk_assets/kyubi/`. Running the downloaded `.exe`, create a `magisk_assets\kyubi\` folder beside the exe. Both are searched.
+- With the file in place, **install, update and "Manager app" all run with no network at all** — no download, and the GitHub API is never called.
+- Optional integrity pin: save the SHA-256 beside it as `app-release.apk.sha256` (plain `<hex>` or `sha256sum` output). A mismatch refuses the install. Without a pin the file is trusted as-is, but it is still validated as a Kyubi payload — the `lib/` binaries plus `assets/stub.apk` must be inside it — so a wrong or truncated download fails immediately with a clear message instead of half-installing.
+- Point at a file anywhere else with the `KYUBI_PAYLOAD_APK` environment variable. It wins over the drop-in folder; pointing it at a missing file is an error rather than a silent download.
+
+The APK is GPLv3: this project redistributes none of it, so the drop-in folder is git-ignored and a release build only carries a payload if whoever built it chose to put one there.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -234,6 +253,9 @@ Everything the tool put on disk lives in two places, both outside the bundle and
 
 **R/W toggle doesn't persist**
 - Ensure BlueStacks processes were fully terminated (kill leftovers in Task Manager if needed)
+
+**"GitHub rate-limited this request, try again later"**
+- The Kyubi build is resolved through the GitHub REST API, which allows 60 unauthenticated requests per hour per source IP — shared/CGNAT addresses and quick retries hit that. Wait it out, or take the network out of the loop for good: drop `app-release.apk` into `magisk_assets/kyubi/` (see [Installing Magisk Without the Network](#installing-magisk-without-the-network)). A payload the app already downloaded and verified on an earlier run is also reused automatically when the lookup fails.
 
 **Installing a module fails with "Invalid Uri"**
 - Don't use BlueStacks' own file picker; use the app's **Modules** tab instead (see [Magisk Modules, Kitsune Mask & Older Builds](#magisk-modules-kitsune-mask--older-builds)). Deeper Kitsune/module help lives in the [companion guide's Discussions](https://github.com/RobThePCGuy/Root-Bluestacks-with-Kitsune-Mask/discussions).
@@ -388,12 +410,13 @@ Undo restores the pristine backup, so nothing about the change is one-way.
 - `su_patch.py` / `su_patch_offline.py`: Patch-mode app root; flips the guest `su` `isDeveloperMode` gate inside `Data.vhdx` (bundled VHD/VHDX + ext4 reader, no ADB required)
 - `ext4_symlink.py`: Classic/MSI app root; adds `/system/xbin/su` in `Root.vhd` via bundled `debugfs` (`tools/e2fsprogs/`)
 - `magisk_system.py`: Offline Magisk-to-system install; stages the DATABIN into `Data.vhdx` and the `/system` footprint into `Root.vhd`, all via bundled `debugfs`
-- `magisk_payload.py`: Downloads and hash-verifies the latest Kyubi (Magisk) release APK, and extracts the native tools/assets `magisk_system.py` needs
+- `magisk_payload.py`: Resolves the Kyubi (Magisk) payload — the offline drop-in APK first, the latest GitHub release only when there is none — hash-verifies it, and extracts the native tools/assets `magisk_system.py` needs
 - `rezygisk_payload.py`: Downloads and hash-verifies the pinned ReZygisk module (standalone Zygisk for the emulator)
 - `lsposed_payload.py`: Downloads and hash-verifies the pinned LSPosed (Zygisk) module
 - `ad_settings.py`: Turns BlueStacks' own ad/promo/stats switches off in the global `bluestacks.conf`. Discovers them by pattern so a version update can't silently outdate the list, records originals for an exact restore, and can pin the file read-only
 - `telemetry_block.py`: Null-routes tracker domains in an instance's guest hosts file, offline via `Root.vhd`. Reaches apps inside the emulator only: BlueStacks' own ads are host-side, so `ad_settings.py` handles those
 - `magisk_assets/`: Version-pinned system-install assets (`config`, `bootanim.rc`, `bootanim.rc.gz`) bundled for the Magisk system-mode install
+- `magisk_assets/kyubi/`: Drop-in folder for the optional offline Kyubi APK (`app-release.apk`); git-ignored, so no Kyubi binary is redistributed here
 
 ### Dependencies
 

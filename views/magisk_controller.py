@@ -325,10 +325,11 @@ class MagiskController:
         if not w._confirm(
                 "Update Magisk",
                 "Check for a newer Magisk and update %s?" % uid,
-                "<p>Looks up the latest build and, if it is newer than the one "
-                "installed, refreshes the system files and binaries offline "
-                "(BlueStacks closes first). Nothing happens if you are already "
-                "up to date.</p>"
+                "<p>Compares what is installed with the Kyubi build this tool "
+                "would install now -- the local copy if one is placed, otherwise "
+                "the latest release -- and, if they differ, refreshes the system "
+                "files and binaries offline (BlueStacks closes first). Nothing "
+                "happens if you are already up to date.</p>"
                 "<p>Your manager app and any modules (ReZygisk, LSPosed) are left "
                 "in place. All instances of this Android version share one master "
                 "Root.vhd, so this updates every clone of it.</p>"):
@@ -374,10 +375,11 @@ class MagiskController:
         if not w._confirm(
                 "Update Kyubi",
                 "Check for a newer Kyubi and update BlueStacks Air?",
-                "<p>Looks up the latest build and, if it differs from the one "
-                "installed, rewrites Kyubi in the system image (BlueStacks closes "
-                "first). Your modules and the Kyubi app stay. Nothing happens if "
-                "you are already up to date.</p>"):
+                "<p>Compares what is installed with the Kyubi build this tool "
+                "would install now -- the local copy if one is placed, otherwise "
+                "the latest release -- and, if they differ, rewrites Kyubi in the "
+                "system image (BlueStacks closes first). Your modules and the "
+                "Kyubi app stay. Nothing happens if you are already up to date.</p>"):
             return
         app_path, data_dir = self._air_args(instance)
         installed_sha = (st.get("payload_sha256") or "").lower()
@@ -430,7 +432,7 @@ class MagiskController:
 
         def job(progress):
             relay = StepReporter(progress, _STEPS_MANAGER)
-            relay("Fetching the Kyubi app...")
+            relay("Preparing the Kyubi app...")
             apk = magisk_payload.fetch_apk(self._cache_dir(), progress=relay)
             msg = adb_handler.install_manager(adb_exe, port, apk, progress=relay)
             self._add_component(instance, "manager")  # reflect it in the status

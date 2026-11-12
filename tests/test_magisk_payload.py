@@ -6,6 +6,7 @@ real release or the wire.
 """
 import hashlib
 import os
+import sys
 import urllib.error
 import zipfile
 
@@ -14,18 +15,32 @@ import pytest
 import magisk_payload as mp
 import payload_fetch
 
+# The real resolver, captured before the autouse fixture below replaces it with a
+# stub; the frozen-layout tests re-patch to this to exercise the genuine logic.
+_REAL_APP_ROOTS = mp._app_roots
+
 
 @pytest.fixture(autouse=True)
-def _clear_kyubi_env(monkeypatch):
-    """Keep fetch_apk tests hermetic: a KYUBI_PAYLOAD_APK set in the real shell
-    (offline-validation override) would otherwise short-circuit the resolve path."""
+def _no_ambient_payload(monkeypatch, tmp_path_factory):
+    """Keep every test hermetic about *which* payload source wins.
+
+    A KYUBI_PAYLOAD_APK set in the real shell or (more insidiously) a real drop-in
+    APK sitting at the repo's ``magisk_assets/kyubi/app-release.apk`` would
+    otherwise short-circuit the release-resolution path, so the download tests
+    would pass for the wrong reason on a machine that happens to have one.
+    Tests that exercise a local payload point ``_app_roots``/the env var at their
+    own files.
+    """
     for var in (mp.LOCAL_PAYLOAD_ENV, mp.LOCAL_SHA_ENV, mp.PIN_TAG_ENV):
         monkeypatch.delenv(var, raising=False)
+    empty = tmp_path_factory.mktemp("no-payload")
+    monkeypatch.setattr(mp, "_app_roots", lambda: [str(empty)])
 
 
 def _make_synthetic_apk(path):
     """Build a zip shaped like the real APK's lib/<abi>/lib*.so + assets/ layout,
     with each member's bytes tagged so extraction can be checked."""
+    path = str(path)
     with zipfile.ZipFile(path, "w") as z:
         for _tool, (abi, soname) in mp._TOOLS.items():
             z.writestr("lib/%s/%s" % (abi, soname), b"ELF:" + abi.encode() + b"/" + soname.encode())
@@ -35,6 +50,23 @@ def _make_synthetic_apk(path):
         for _rel, member in mp._DATABIN_EXTRAS.items():
             z.writestr(member, b"ASSET:" + member.encode())
         z.writestr("assets/uninstaller.sh", b"# not a DATABIN extra")
+
+
+def _drop_in_apk(tmp_path, monkeypatch, sidecar=None):
+    """Lay a synthetic APK out at the documented drop-in path and aim the app at it.
+
+    Returns the APK path. ``sidecar``, when given, is written next to it as the
+    optional ``.sha256`` pin.
+    """
+    root = tmp_path / "app"
+    (root / mp.BUNDLED_DIR).mkdir(parents=True)
+    apk = root / mp.BUNDLED_DIR / mp.BUNDLED_APK_NAME
+    _make_synthetic_apk(apk)
+    if sidecar is not None:
+        (root / mp.BUNDLED_DIR /
+         (mp.BUNDLED_APK_NAME + mp.SHA_SIDECAR_SUFFIX)).write_text(sidecar)
+    monkeypatch.setattr(mp, "_app_roots", lambda: [str(root)])
+    return apk
 
 
 def test_extract_tools_writes_every_tool_unwrapped(tmp_path):
@@ -224,11 +256,11 @@ def test_resolve_release_surfaces_rate_limit_message_end_to_end(tmp_path, monkey
 
 
 def test_fetch_apk_local_override_verifies_and_skips_network(tmp_path, monkeypatch):
-    payload = b"local-apk-bytes"
     src = tmp_path / "local.apk"
-    src.write_bytes(payload)
+    _make_synthetic_apk(src)
+    digest = hashlib.sha256(src.read_bytes()).hexdigest()
     monkeypatch.setenv(mp.LOCAL_PAYLOAD_ENV, str(src))
-    monkeypatch.setenv(mp.LOCAL_SHA_ENV, hashlib.sha256(payload).hexdigest())
+    monkeypatch.setenv(mp.LOCAL_SHA_ENV, digest)
 
     # a valid local override must never hit the release API
     def _no_net():
@@ -237,7 +269,8 @@ def test_fetch_apk_local_override_verifies_and_skips_network(tmp_path, monkeypat
 
     dest = mp.fetch_apk(str(tmp_path / "cache"))
     assert os.path.isfile(dest)
-    assert open(dest, "rb").read() == payload
+    assert open(dest, "rb").read() == src.read_bytes()
+    assert mp.PAYLOAD_SHA256 == digest
 
     # a wrong declared sha is rejected
     monkeypatch.setenv(mp.LOCAL_SHA_ENV, "0" * 64)
@@ -293,3 +326,164 @@ def test_resolve_release_picks_newest_published_prerelease(monkeypatch):
     monkeypatch.setattr(mp, "_api_get", lambda url: listing)
     tag, url, sha = mp._resolve_release()
     assert (tag, url, sha) == ("v-pre4", "https://x/v-pre4.apk", "4" * 64)
+
+
+# --------------------------------------------------------------------------
+# Offline payload: the drop-in APK is the DEFAULT source, ahead of the network.
+# --------------------------------------------------------------------------
+
+def test_bundled_payload_is_used_by_default_without_network(tmp_path, monkeypatch):
+    """The reported bug: a rate-limited API turned an offline-capable install into
+    a hard failure. With the APK dropped in place, nothing may even be resolved."""
+    apk = _drop_in_apk(tmp_path, monkeypatch)
+
+    def _no_net(*a, **k):
+        raise AssertionError("network used despite a bundled offline payload")
+    monkeypatch.setattr(mp, "_resolve_release", _no_net)
+    monkeypatch.setattr(payload_fetch.urllib.request, "urlretrieve", _no_net)
+
+    out = mp.fetch_apk(str(tmp_path / "cache"))
+
+    assert out == str(apk)                                    # used verbatim, no copy
+    assert mp.PAYLOAD_SHA256 == hashlib.sha256(apk.read_bytes()).hexdigest()
+    assert mp.PAYLOAD_VERSION == mp.LOCAL_VERSION_LABEL        # what the manifest stamps
+
+
+def test_env_override_still_beats_the_bundled_payload(tmp_path, monkeypatch):
+    _drop_in_apk(tmp_path, monkeypatch)                       # would otherwise win
+    override = tmp_path / "elsewhere.apk"
+    _make_synthetic_apk(override)
+    monkeypatch.setenv(mp.LOCAL_PAYLOAD_ENV, str(override))
+
+    assert mp.fetch_apk(str(tmp_path / "cache")) == str(override)
+
+
+def test_missing_explicit_override_errors_instead_of_downloading(tmp_path, monkeypatch):
+    """Whoever set the env var asked for offline: falling back to the wire would
+    hide the typo and re-introduce the exact failure they were avoiding."""
+    monkeypatch.setenv(mp.LOCAL_PAYLOAD_ENV, str(tmp_path / "gone.apk"))
+
+    def _no_net(*a, **k):
+        raise AssertionError("fell back to the network")
+    monkeypatch.setattr(mp, "_resolve_release", _no_net)
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        mp.fetch_apk(str(tmp_path / "cache"))
+
+
+def test_bundled_file_that_is_not_an_apk_is_rejected_early(tmp_path, monkeypatch):
+    """A saved HTML error page / truncated download must fail with a message that
+    names the file, not later as "payload is missing lib/x86/libmagisk32.so"."""
+    root = tmp_path / "app"
+    (root / mp.BUNDLED_DIR).mkdir(parents=True)
+    (root / mp.BUNDLED_DIR / mp.BUNDLED_APK_NAME).write_text("<html>404</html>")
+    monkeypatch.setattr(mp, "_app_roots", lambda: [str(root)])
+
+    with pytest.raises(RuntimeError, match="not a usable Kyubi APK"):
+        mp.fetch_apk(str(tmp_path / "cache"))
+
+
+def test_bundled_zip_without_the_binaries_is_rejected(tmp_path, monkeypatch):
+    root = tmp_path / "app"
+    (root / mp.BUNDLED_DIR).mkdir(parents=True)
+    apk = root / mp.BUNDLED_DIR / mp.BUNDLED_APK_NAME
+    with zipfile.ZipFile(apk, "w") as z:                      # a zip, but not Kyubi
+        z.writestr("AndroidManifest.xml", b"not kyubi")
+    monkeypatch.setattr(mp, "_app_roots", lambda: [str(root)])
+
+    with pytest.raises(RuntimeError, match="not a usable Kyubi APK"):
+        mp.fetch_apk(str(tmp_path / "cache"))
+
+
+def test_bundled_payload_sha256_sidecar_is_enforced(tmp_path, monkeypatch):
+    apk = _drop_in_apk(tmp_path, monkeypatch, sidecar="0" * 64)
+
+    with pytest.raises(RuntimeError, match="mismatch"):
+        mp.fetch_apk(str(tmp_path / "cache"))
+
+    # the correct pin (in `sha256sum` output form: "<hex>  <filename>") is accepted
+    (apk.parent / (mp.BUNDLED_APK_NAME + mp.SHA_SIDECAR_SUFFIX)).write_text(
+        hashlib.sha256(apk.read_bytes()).hexdigest() + "  " + mp.BUNDLED_APK_NAME + "\n")
+    assert mp.fetch_apk(str(tmp_path / "cache")) == str(apk)
+
+
+def test_latest_identity_prefers_the_bundled_payload(tmp_path, monkeypatch):
+    """The "Update Magisk" check must use the same source the install would, so a
+    local payload keeps the update path off the network too."""
+    apk = _drop_in_apk(tmp_path, monkeypatch)
+
+    def _no_net():
+        raise AssertionError("hit the network for the update check")
+    monkeypatch.setattr(mp, "_resolve_release", _no_net)
+
+    version, sha = mp.latest_identity()
+    assert version == mp.LOCAL_VERSION_LABEL
+    assert sha == hashlib.sha256(apk.read_bytes()).hexdigest()
+
+
+def test_rate_limited_download_falls_back_to_the_cached_copy(tmp_path, monkeypatch):
+    """No drop-in APK and the API is rate-limited: an earlier hash-verified
+    download is still a valid, installed-before payload -- use it."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    cached = cache / mp.PAYLOAD_NAME
+    _make_synthetic_apk(cached)
+
+    def _rate_limited():
+        raise RuntimeError("GitHub rate-limited this request, try again later.")
+    monkeypatch.setattr(mp, "_resolve_release", _rate_limited)
+
+    out = mp.fetch_apk(str(cache))
+
+    assert out == str(cached)
+    assert mp.PAYLOAD_VERSION == mp.CACHED_VERSION_LABEL
+    assert mp.PAYLOAD_SHA256 == hashlib.sha256(cached.read_bytes()).hexdigest()
+
+
+def test_rate_limit_still_fails_when_nothing_is_cached(tmp_path, monkeypatch):
+    """The cached-copy fallback must not turn a real failure into a silent no-op."""
+    def _rate_limited():
+        raise RuntimeError("GitHub rate-limited this request, try again later.")
+    monkeypatch.setattr(mp, "_resolve_release", _rate_limited)
+
+    with pytest.raises(RuntimeError, match="rate-limited"):
+        mp.fetch_apk(str(tmp_path / "cache"))
+
+
+def test_bundled_apk_path_resolves_inside_the_frozen_bundle(tmp_path, monkeypatch):
+    meipass = tmp_path / "meipass"
+    (meipass / mp.BUNDLED_DIR).mkdir(parents=True)
+    apk = meipass / mp.BUNDLED_DIR / mp.BUNDLED_APK_NAME
+    _make_synthetic_apk(apk)
+    monkeypatch.setattr(mp, "_app_roots", _REAL_APP_ROOTS)   # exercise the real logic
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "exe" / "BlueStacksRootGUI.exe"),
+                        raising=False)
+
+    assert mp.bundled_apk_path() == str(apk)
+
+
+def test_bundled_apk_path_next_to_a_frozen_exe_is_found(tmp_path, monkeypatch):
+    """A user who downloads the exe can drop the APK beside it -- no rebuild."""
+    exe_dir = tmp_path / "Downloads"
+    (exe_dir / mp.BUNDLED_DIR).mkdir(parents=True)
+    apk = exe_dir / mp.BUNDLED_DIR / mp.BUNDLED_APK_NAME
+    _make_synthetic_apk(apk)
+    monkeypatch.setattr(mp, "_app_roots", _REAL_APP_ROOTS)   # exercise the real logic
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "empty-bundle"), raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe_dir / "BlueStacksRootGUI.exe"),
+                        raising=False)
+
+    assert mp.bundled_apk_path() == str(apk)
+
+
+def test_bundled_apk_path_reports_the_drop_in_location_when_absent(tmp_path, monkeypatch):
+    """With no payload at all, the path is still answerable -- error messages and
+    docs quote exactly where to put the file."""
+    root = tmp_path / "app"
+    monkeypatch.setattr(mp, "_app_roots", lambda: [str(root)])
+
+    assert mp.bundled_apk_path() == str(root / mp.BUNDLED_DIR / mp.BUNDLED_APK_NAME)
+

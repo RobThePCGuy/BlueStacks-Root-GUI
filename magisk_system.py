@@ -714,7 +714,9 @@ def install(instance_dir: str, work_dir: str | None = None, progress=None) -> li
             progress(msg)
 
     work = work_dir or _default_work_dir()
-    _p("Fetching Magisk payload (%s)..." % _mp.PAYLOAD_VERSION)
+    # Source-agnostic on purpose: the payload is usually the offline drop-in (no
+    # network), and the release is only fetched when no local APK is present.
+    _p("Preparing the Magisk payload...")
     apk = _mp.fetch_apk(os.path.join(work, "cache"), progress=progress)
     tools = _mp.extract_tools(apk, os.path.join(work, "tools"), progress=progress)
     stub = _mp.extract_stub_apk(apk, os.path.join(work, "tools"))

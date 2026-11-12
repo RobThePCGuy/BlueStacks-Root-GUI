@@ -12,3 +12,7 @@ BlueStacksRootGUI*.spec
 *.prepatch.bak
 *.i64
 .codebase-reckoning/
+# Kyubi payload: the optional offline drop-in APK (GPLv3, never redistributed
+# here). Placing one makes every install run with no network; see magisk_payload.
+/magisk_assets/kyubi/*.apk
+/magisk_assets/kyubi/*.apk.sha256
