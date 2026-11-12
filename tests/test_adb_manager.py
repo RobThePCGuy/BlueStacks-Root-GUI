@@ -23,6 +23,11 @@ def _runner(handle):
 
     def runner(cmd):
         calls.append(cmd)
+        # Real adb answers `devices` too, and _resolve_serial now confirms the
+        # connect actually stuck by looking the serial up there (a second adb of a
+        # different version restarts the server and drops every tcp transport).
+        if len(cmd) >= 2 and cmd[1] == "devices":
+            return _cp("List of devices attached\n127.0.0.1:5555\tdevice\n")
         return handle(cmd)
 
     runner.calls = calls

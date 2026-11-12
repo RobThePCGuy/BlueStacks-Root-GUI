@@ -36,6 +36,11 @@ _ADB_PORT_KEY = ".status.adb_port"
 # clean reinstall.
 MANAGER_PACKAGE = "io.github.robthepcguy.kyubi"
 
+# What `magisk -V` alone on a line looks like: the version code and nothing else.
+# Anchored on purpose -- see magisk_version_code for what an unanchored search
+# used to swallow (adb's "device '127.0.0.1:5555' not found" read as 5555).
+_VERSION_CODE_RE = re.compile(r"^\d{4,6}$")
+
 # Hide the console window adb would otherwise flash on Windows.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -114,8 +119,21 @@ def _resolve_serial(adb_exe: str, port: Optional[int], runner: Runner) -> str:
         cp = runner([adb_exe, "connect", serial])
         out = (cp.stdout or "") + (cp.stderr or "")
         if "connected" in out.lower():
-            return serial
-        logger.debug("adb connect output: %s", out.strip())  # fall through
+            # "connected" only describes the moment of the call. A second adb of a
+            # different version kills the server on sight ("adb server version
+            # (41) doesn't match this client (36); killing...") and every tcp
+            # transport dies with it, so trusting the reply blindly hands the next
+            # command a serial that is already gone -- which is exactly how
+            # "error: device '127.0.0.1:5555' not found" ended up being read as a
+            # Magisk version. Confirm the transport still exists before using it.
+            listed = _parse_devices(runner([adb_exe, "devices"]).stdout or "")
+            if serial in listed:
+                return serial
+            logger.debug("adb connect reported %s but it is not attached (%s); "
+                         "falling back to the device list",
+                         serial, ", ".join(listed) or "none")
+        else:
+            logger.debug("adb connect output: %s", out.strip())  # fall through
 
     cp = runner([adb_exe, "devices"])
     devices = _parse_devices(cp.stdout or "")
@@ -198,20 +216,41 @@ def _shell_single_quote(s: str) -> str:
 def magisk_version_code(adb_exe: str, serial: str, runner: Runner = _run) -> Optional[int]:
     """The running daemon's MAGISK_VER_CODE, or None if it can't be read.
 
-    ``magisk -V`` prints the numeric version code and nothing else. None means
-    "couldn't tell" (no root shell, Magisk absent, unexpected output) and must
-    never be treated as "too old" -- a version gate that fires on an unreadable
-    version would block flashing on any instance whose shell is momentarily
-    unavailable.
+    ``magisk -V`` prints the numeric version code and nothing else, and that is
+    the entire contract this relies on: the call must have succeeded and one
+    stripped output line must be a bare number. Nothing looser is safe, because
+    everything else adb prints looks numeric too:
+
+      * a failed transport says ``error: device '127.0.0.1:5555' not found`` --
+        reading "the first 4-6 digit number" out of stdout+stderr turned that
+        port into version 5555, and the gate then refused a healthy flash as
+        "running 5555, older than 26402";
+      * a mismatched adb server writes ``version (41) doesn't match this client
+        (36); killing...`` and ``starting now at tcp:5037`` to *stdout*, so even
+        stdout alone can carry a 4-digit port.
+
+    None means "couldn't tell" (no root shell, Magisk absent, transport down,
+    unexpected output) and must never be treated as "too old" -- a version gate
+    that fires on an unreadable version would block flashing on any instance
+    whose shell is momentarily unavailable.
     """
     try:
         cp = runner([adb_exe, "-s", serial, "shell", "su", "-c", "magisk -V"])
     except Exception:  # noqa: BLE001 - unreadable version is not a failure
         logger.debug("magisk -V failed", exc_info=True)
         return None
-    out = ((cp.stdout or "") + (cp.stderr or "")).strip()
-    m = re.search(r"\b(\d{4,6})\b", out)
-    return int(m.group(1)) if m else None
+    if cp.returncode != 0:
+        # Nothing a failed call prints is a version -- it is adb or su explaining
+        # the failure, port numbers included.
+        logger.debug("magisk -V exited %s: %r", cp.returncode,
+                     ((cp.stdout or "") + (cp.stderr or "")).strip())
+        return None
+    for line in (cp.stdout or "").splitlines():
+        if _VERSION_CODE_RE.match(line.strip()):
+            return int(line.strip())
+    logger.debug("magisk -V printed no bare version code: %r",
+                 (cp.stdout or "").strip())
+    return None
 
 
 def install_module(adb_exe: str, port: Optional[int], local_zip: str,
@@ -254,9 +293,9 @@ def install_module(adb_exe: str, port: Optional[int], local_zip: str,
         have = magisk_version_code(adb_exe, serial, runner)
         if have is not None and have < min_magisk_ver_code:
             raise RuntimeError(
-                "%s needs Magisk %d or newer, but this instance is running %d. "
-                "Update the root payload first -- flashing now would fail partway "
-                "through the module's own install script."
+                "%s needs Magisk %d or newer, but this instance's daemon reports "
+                "%d (`magisk -V`). Update the root payload first -- flashing now "
+                "would fail partway through the module's own install script."
                 % (name, min_magisk_ver_code, have))
 
     tmp = "/data/local/tmp/" + name
