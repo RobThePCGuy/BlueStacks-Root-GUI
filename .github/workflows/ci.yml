@@ -43,12 +43,12 @@ jobs:
     # The suite covers both platforms' code paths (tests pin the branch they
     # exercise rather than inheriting the host's), but a few things can only be
     # checked natively: the pywin32 mutex and ctypes.wintypes on Windows, and
-    # the Air locator / su builder on macOS. macos-14 is Apple Silicon, which
+    # the Air locator / su builder on macOS. macos-15 is Apple Silicon, which
     # is the only architecture BlueStacks Air runs on.
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

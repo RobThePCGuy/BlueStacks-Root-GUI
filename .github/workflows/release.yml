@@ -49,10 +49,10 @@ jobs:
           path: dist/BlueStacksRootGUI.exe
           if-no-files-found: error
 
-  # BlueStacks Air is Apple Silicon only, and macos-14 is Apple Silicon. The
+  # BlueStacks Air is Apple Silicon only, and macos-15 is Apple Silicon. The
   # script bundles debugfs/e2fsck so the download needs no Homebrew.
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
       - name: Checkout
