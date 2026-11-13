@@ -195,21 +195,51 @@ def test_open_url_converts_github_rate_limit_to_clear_message(monkeypatch, code)
             "https://api.github.com/x", code, "rate limited", {}, None)
     monkeypatch.setattr(mp.urllib.request, "urlopen", _raise_rate_limited)
 
-    with pytest.raises(RuntimeError, match="rate-limited"):
+    with pytest.raises(RuntimeError, match="60 free GitHub lookups"):
         mp._api_get("https://api.github.com/repos/x/releases/latest")
 
 
-def test_open_url_reraises_other_http_errors_unconverted(monkeypatch):
+def test_open_url_explains_not_found_without_calling_it_a_rate_limit(monkeypatch):
     def _raise_not_found(req, timeout=30):
         raise urllib.error.HTTPError(
             "https://api.github.com/x", 404, "not found", {}, None)
     monkeypatch.setattr(mp.urllib.request, "urlopen", _raise_not_found)
 
-    # A non-rate-limit HTTPError must propagate as-is, not be swallowed or
-    # relabeled as a rate-limit message.
-    with pytest.raises(urllib.error.HTTPError) as exc_info:
+    with pytest.raises(RuntimeError, match="error 404") as exc_info:
         mp._api_get("https://api.github.com/repos/x/releases/latest")
-    assert exc_info.value.code == 404
+    assert "lookups" not in str(exc_info.value)
+
+
+def test_rate_limit_message_names_reset_time(monkeypatch):
+    reset = int(mp.time.time()) + 25 * 60
+    def _raise(req, timeout=30):
+        raise urllib.error.HTTPError(
+            "https://api.github.com/x", 403, "rate limit exceeded",
+            {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(reset)}, None)
+    monkeypatch.setattr(mp.urllib.request, "urlopen", _raise)
+
+    with pytest.raises(RuntimeError, match=r"resets in about 2[45] minutes"):
+        mp._api_get("https://api.github.com/x")
+
+
+def test_403_with_lookups_left_is_not_called_a_rate_limit(monkeypatch):
+    def _raise(req, timeout=30):
+        raise urllib.error.HTTPError(
+            "https://api.github.com/x", 403, "forbidden",
+            {"X-RateLimit-Remaining": "42"}, None)
+    monkeypatch.setattr(mp.urllib.request, "urlopen", _raise)
+
+    with pytest.raises(RuntimeError, match="error 403: forbidden"):
+        mp._api_get("https://api.github.com/x")
+
+
+def test_offline_says_offline(monkeypatch):
+    def _raise(req, timeout=30):
+        raise urllib.error.URLError("nodename nor servname provided")
+    monkeypatch.setattr(mp.urllib.request, "urlopen", _raise)
+
+    with pytest.raises(RuntimeError, match="Couldn't reach GitHub"):
+        mp._api_get("https://api.github.com/x")
 
 
 def test_resolve_release_surfaces_rate_limit_message_end_to_end(tmp_path, monkeypatch):
@@ -219,7 +249,7 @@ def test_resolve_release_surfaces_rate_limit_message_end_to_end(tmp_path, monkey
             "https://api.github.com/x", 403, "rate limited", {}, None)
     monkeypatch.setattr(mp.urllib.request, "urlopen", _raise_rate_limited)
 
-    with pytest.raises(RuntimeError, match="rate-limited"):
+    with pytest.raises(RuntimeError, match="60 free GitHub lookups"):
         mp.fetch_apk(str(tmp_path))
 
 
