@@ -209,9 +209,15 @@ def magisk_version_code(adb_exe: str, serial: str, runner: Runner = _run) -> Opt
     except Exception:  # noqa: BLE001 - unreadable version is not a failure
         logger.debug("magisk -V failed", exc_info=True)
         return None
-    out = ((cp.stdout or "") + (cp.stderr or "")).strip()
-    m = re.search(r"\b(\d{4,6})\b", out)
-    return int(m.group(1)) if m else None
+    # Only a clean, successful answer counts. adb's own errors and server
+    # chatter carry numbers too (the serial's port, 5555; the server's 5037),
+    # and reading one of those as the version refused healthy instances.
+    if getattr(cp, "returncode", 0) != 0:
+        return None
+    for line in (cp.stdout or "").splitlines():
+        if re.fullmatch(r"\d{4,6}", line.strip()):
+            return int(line.strip())
+    return None
 
 
 def install_module(adb_exe: str, port: Optional[int], local_zip: str,
