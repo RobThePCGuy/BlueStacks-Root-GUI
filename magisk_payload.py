@@ -28,6 +28,7 @@ import logging
 import os
 import shutil
 import urllib.error
+import time
 import urllib.request
 import zipfile
 
@@ -115,19 +116,52 @@ def _record(sha256: str, version: str) -> None:
 
 
 def _open_url(req: urllib.request.Request, timeout: int = 30):
-    """``urllib.request.urlopen``, but a GitHub rate-limit response (403/429) is
-    turned into a clear, actionable ``RuntimeError`` instead of a raw
-    ``HTTPError``. GitHub caps unauthenticated REST API requests at 60/hour per
+    """``urllib.request.urlopen``, but every HTTP or connection failure becomes a
+    ``RuntimeError`` that says what failed, why, and what to do. GitHub caps unauthenticated REST API requests at 60/hour per
     source IP (tightened further in May 2025), so a shared/CGNAT egress IP or
     rapid retries can trip this -- this is the only network path in the app
     that calls the GitHub API rather than a pinned direct-download URL."""
     try:
         return urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as exc:
-        if exc.code in (403, 429):
-            raise RuntimeError(
-                "GitHub rate-limited this request, try again later.") from exc
-        raise
+        raise RuntimeError(_http_failure_message(exc)) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "Couldn't reach GitHub to download Kyubi (%s). Check that this "
+            "computer is online, then try again." % exc.reason) from exc
+
+
+def _http_failure_message(exc: urllib.error.HTTPError) -> str:
+    """Say what failed, why, and when it clears -- in words a user can act on."""
+    headers = exc.headers or {}
+    remaining = headers.get("X-RateLimit-Remaining")
+    reset = headers.get("X-RateLimit-Reset")
+    # A 403 is a rate limit unless GitHub says lookups remain (its secondary
+    # limits send 403 without a zero count).
+    rate_limited = exc.code == 429 or (
+        exc.code == 403 and not (remaining or "").strip().strip("0"))
+    if rate_limited:
+        when = "in about an hour"
+        try:
+            mins = max(1, round((int(reset) - time.time()) / 60))
+            when = "in about %d minute%s (at %s)" % (
+                mins, "" if mins == 1 else "s",
+                time.strftime("%I:%M %p", time.localtime(int(reset))).lstrip("0"))
+        except (TypeError, ValueError):
+            pass
+        return ("GitHub refused the request because this internet connection has "
+                "used up its 60 free GitHub lookups for the hour (GitHub error %d). "
+                "Shared networks, VPNs and repeated retries use them up fastest. "
+                "Nothing on the instance was changed. The limit resets %s; try "
+                "again then, or switch networks (e.g. turn the VPN off)."
+                % (exc.code, when))
+    if exc.code == 404:
+        return ("GitHub couldn't find the Kyubi release (error 404). The release "
+                "may have been removed or renamed. Nothing on the instance was "
+                "changed.")
+    return ("GitHub returned an error while looking up Kyubi (error %d: %s). "
+            "Nothing on the instance was changed; try again in a few minutes."
+            % (exc.code, exc.reason))
 
 
 def _api_get(url: str):
